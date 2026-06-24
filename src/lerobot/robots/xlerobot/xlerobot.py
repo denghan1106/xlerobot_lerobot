@@ -636,13 +636,46 @@ class XLerobot(Robot):
         logger.info("Base motors stopped")
 
     def disconnect(self):
-        if not self.is_connected:
+        buses_connected = self.bus1.is_connected or self.bus2.is_connected
+        cameras_connected = any(cam.is_connected for cam in self.cameras.values())
+        if not buses_connected and not cameras_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        self.stop_base()
-        self.bus1.disconnect(self.config.disable_torque_on_disconnect)
-        self.bus2.disconnect(self.config.disable_torque_on_disconnect)
+        # KeyboardInterrupt can leave the SDK port marked as busy in the
+        # middle of a serial transaction. Recover that state before sending
+        # the final zero-velocity command.
+        if self.bus2.is_connected:
+            try:
+                self.bus2.port_handler.clearPort()
+                self.bus2.port_handler.is_using = False
+                self.stop_base()
+            except Exception as exc:
+                logger.warning("Could not stop the base during disconnect: %s", exc)
+
+        # Always attempt both buses. One failed USB connection must not prevent
+        # the other arm from disabling torque and closing its serial port.
+        for bus_name, bus in (("bus1", self.bus1), ("bus2", self.bus2)):
+            if not bus.is_connected:
+                continue
+            try:
+                bus.disconnect(self.config.disable_torque_on_disconnect)
+            except Exception as exc:
+                logger.warning(
+                    "Could not fully disconnect %s; motor torque may still be enabled: %s",
+                    bus_name,
+                    exc,
+                )
+                bus.port_handler.is_using = False
+                try:
+                    bus.port_handler.closePort()
+                except Exception as close_exc:
+                    logger.warning("Could not force-close %s: %s", bus_name, close_exc)
+
         for cam in self.cameras.values():
-            cam.disconnect()
+            if cam.is_connected:
+                try:
+                    cam.disconnect()
+                except Exception as exc:
+                    logger.warning("Could not disconnect camera: %s", exc)
 
         logger.info(f"{self} disconnected.")

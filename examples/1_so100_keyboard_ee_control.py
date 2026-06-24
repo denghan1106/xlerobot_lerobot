@@ -14,36 +14,6 @@ import math
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Joint calibration coefficients - manually edited
-# Format: [joint_name, zero_position_offset(degrees), scale_factor]
-JOINT_CALIBRATION = [
-    ['shoulder_pan', 6.0, 1.0],      # Joint 1: zero position offset, scale factor
-    ['shoulder_lift', 2.0, 0.97],     # Joint 2: zero position offset, scale factor
-    ['elbow_flex', 0.0, 1.05],        # Joint 3: zero position offset, scale factor
-    ['wrist_flex', 0.0, 0.94],        # Joint 4: zero position offset, scale factor
-    ['wrist_roll', 0.0, 0.5],        # Joint 5: zero position offset, scale factor
-    ['gripper', 0.0, 1.0],           # Joint 6: zero position offset, scale factor
-]
-
-def apply_joint_calibration(joint_name, raw_position):
-    """
-    Apply joint calibration coefficients
-    
-    Args:
-        joint_name: joint name
-        raw_position: raw position value
-    
-    Returns:
-        calibrated_position: calibrated position value
-    """
-    for joint_cal in JOINT_CALIBRATION:
-        if joint_cal[0] == joint_name:
-            offset = joint_cal[1]  # zero position offset
-            scale = joint_cal[2]   # scale factor
-            calibrated_position = (raw_position - offset) * scale
-            return calibrated_position
-    return raw_position  # if no calibration coefficient found, return original value
-
 def inverse_kinematics(x, y, l1=0.1159, l2=0.1350):
     """
     Calculate inverse kinematics for a 2-link robotic arm, considering joint offsets
@@ -153,9 +123,7 @@ def move_to_zero_position(robot, duration=3.0, kp=0.5):
         for key, value in current_obs.items():
             if key.endswith('.pos'):
                 motor_name = key.removesuffix('.pos')
-                # Apply calibration coefficients
-                calibrated_value = apply_joint_calibration(motor_name, value)
-                current_positions[motor_name] = calibrated_value
+                current_positions[motor_name] = value
         
         # P control calculation
         robot_action = {}
@@ -345,9 +313,7 @@ def p_control_loop(robot, keyboard, target_positions, start_positions, current_x
             for key, value in current_obs.items():
                 if key.endswith('.pos'):
                     motor_name = key.removesuffix('.pos')
-                    # Apply calibration coefficients
-                    calibrated_value = apply_joint_calibration(motor_name, value)
-                    current_positions[motor_name] = calibrated_value
+                    current_positions[motor_name] = value
             
             # P control calculation
             robot_action = {}
@@ -387,14 +353,14 @@ def main():
         # from lerobot.robots.so100_follower import SO100Follower, SO100FollowerConfig
         # from lerobot.teleoperators.keyboard import KeyboardTeleop, KeyboardTeleopConfig
 
-        from lerobot.robots.so_follower.so_follower import SO100Follower
-        from lerobot.robots.so_follower.config_so_follower import SO100FollowerConfig
+        from lerobot.robots.so_follower.so_follower import SO101Follower
+        from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
         
         from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
         from lerobot.teleoperators.keyboard.configuration_keyboard import KeyboardTeleopConfig
         
         # Get port
-        port = input("Please enter the USB port for SO100 robot (e.g., /dev/ttyACM0): ").strip()
+        port = input("Please enter the USB port for SO101 robot (e.g., /dev/ttyACM0): ").strip()
         
         # If directly press Enter, use default port
         if not port:
@@ -404,8 +370,8 @@ def main():
             print(f"Connecting to port: {port}")
         
         # Configure robot
-        robot_config = SO100FollowerConfig(port=port)
-        robot = SO100Follower(robot_config)
+        robot_config = SO101FollowerConfig(port=port, id="xlerobot_left_arm")
+        robot = SO101Follower(robot_config)
         
         # Configure keyboard
         keyboard_config = KeyboardTeleopConfig()

@@ -390,14 +390,18 @@ def main():
     FPS = 50
     # ip = "192.168.1.123"  # This is for zmq connection
     ip = "localhost"  # This is for local/wired connection
-    robot_name = "my_xlerobot_pc"
+    robot_name = "xlerobot"
 
     # For zmq connection
     # robot_config = XLerobotClientConfig(remote_ip=ip, id=robot_name)
     # robot = XLerobotClient(robot_config)    
 
     # For local/wired connection
-    robot_config = XLerobotConfig()
+    robot_config = XLerobotConfig(
+        id=robot_name,
+        port1="/dev/tty.usbmodem5AE60816781",
+        port2="/dev/tty.usbmodem5AE60821991",
+    )
     robot = XLerobot(robot_config)
     
     try:
@@ -407,30 +411,40 @@ def main():
         print(f"[MAIN] Failed to connect to robot: {e}")
         print(robot_config)
         print(robot)
+        if robot.bus1.is_connected or robot.bus2.is_connected:
+            robot.disconnect()
         return
-        
-    init_rerun(session_name="xlerobot_teleop_v2")
 
-    #Init the keyboard instance
-    keyboard_config = KeyboardTeleopConfig()
-    keyboard = KeyboardTeleop(keyboard_config)
-    keyboard.connect()
-
-    # Init the arm and head instances
-    obs = robot.get_observation()
-    kin_left = SO101Kinematics()
-    kin_right = SO101Kinematics()
-    left_arm = SimpleTeleopArm(kin_left, LEFT_JOINT_MAP, obs, prefix="left")
-    right_arm = SimpleTeleopArm(kin_right, RIGHT_JOINT_MAP, obs, prefix="right")
-    head_control = SimpleHeadControl(obs)
-
-    # Move both arms and head to zero position at start
-    left_arm.move_to_zero_position(robot)
-    right_arm.move_to_zero_position(robot)
-
+    keyboard = None
     try:
+        init_rerun(session_name="xlerobot_teleop_v2")
+
+        # Init the keyboard instance
+        keyboard_config = KeyboardTeleopConfig()
+        keyboard = KeyboardTeleop(keyboard_config)
+        keyboard.connect()
+
+        # Init the arm and head instances
+        obs = robot.get_observation()
+        kin_left = SO101Kinematics()
+        kin_right = SO101Kinematics()
+        left_arm = SimpleTeleopArm(kin_left, LEFT_JOINT_MAP, obs, prefix="left")
+        right_arm = SimpleTeleopArm(kin_right, RIGHT_JOINT_MAP, obs, prefix="right")
+        head_control = SimpleHeadControl(obs)
+
+        # Move both arms and head to zero position at start
+        left_arm.move_to_zero_position(robot)
+        right_arm.move_to_zero_position(robot)
+
+        print(f"[MAIN] Press '{robot.teleop_keys['quit']}' to stop and release motor torque safely.")
+
         while True:
             pressed_keys = set(keyboard.get_action().keys())
+
+            if robot.teleop_keys["quit"] in pressed_keys:
+                print("[MAIN] Quit key pressed; stopping and disconnecting...")
+                break
+
             left_key_state = {action: (key in pressed_keys) for action, key in LEFT_KEYMAP.items()}
             right_key_state = {action: (key in pressed_keys) for action, key in RIGHT_KEYMAP.items()}
 
@@ -481,8 +495,12 @@ def main():
             log_rerun_data(obs, action)
             # busy_wait(1.0 / FPS)
     finally:
-        robot.disconnect()
-        keyboard.disconnect()
+        try:
+            if robot.bus1.is_connected or robot.bus2.is_connected:
+                robot.disconnect()
+        finally:
+            if keyboard is not None and keyboard.is_connected:
+                keyboard.disconnect()
         print("Teleoperation ended.")
 
 if __name__ == "__main__":
