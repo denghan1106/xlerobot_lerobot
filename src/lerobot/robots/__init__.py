@@ -17,5 +17,6 @@
 from .config import RobotConfig
 from .robot import Robot
 from .utils import make_robot_from_config
+from . import xlerobot_right_arm as xlerobot_right_arm  # noqa: F401
 
 __all__ = ["Robot", "RobotConfig", "make_robot_from_config"]

@@ -17,5 +17,6 @@
 from .config import TeleoperatorConfig
 from .teleoperator import Teleoperator
 from .utils import TeleopEvents, make_teleoperator_from_config
+from . import xlerobot_right_arm_leader as xlerobot_right_arm_leader  # noqa: F401
 
 __all__ = ["Teleoperator", "TeleoperatorConfig", "TeleopEvents", "make_teleoperator_from_config"]
