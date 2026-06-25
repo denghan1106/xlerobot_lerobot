@@ -234,11 +234,20 @@ class XLerobot(Robot):
         homing_offsets = self.bus1.set_half_turn_homings(left_motors)
         homing_offsets.update(dict.fromkeys(self.right_arm_motors + self.base_motors, 0))
         
+        full_turn_left_motors = [
+            motor for motor in left_motors if motor.endswith("wrist_roll")
+        ]
+        unknown_range_left_motors = [
+            motor for motor in left_motors if motor not in full_turn_left_motors
+        ]
         print(
-            f"Move all left arm and head joints sequentially through their "
+            f"Move all left arm and head joints except '{full_turn_left_motors}' sequentially through their "
             "entire ranges of motion.\nRecording positions. Press ENTER to stop..."
         )
-        range_mins, range_maxes = self.bus1.record_ranges_of_motion(left_motors)
+        range_mins, range_maxes = self.bus1.record_ranges_of_motion(unknown_range_left_motors)
+        for name in full_turn_left_motors:
+            range_mins[name] = 0
+            range_maxes[name] = 4095
         
         calibration_left = {}
         for name, motor in self.bus1.motors.items():
@@ -266,7 +275,7 @@ class XLerobot(Robot):
         homing_offsets.update(dict.fromkeys(self.base_motors, 0))
         
         full_turn_motor = [
-            motor for motor in right_motors if any(keyword in motor for keyword in ["wheel"])
+            motor for motor in right_motors if motor.endswith("wrist_roll") or any(keyword in motor for keyword in ["wheel"])
         ]
         
         unknown_range_motors = [motor for motor in right_motors if motor not in full_turn_motor]
