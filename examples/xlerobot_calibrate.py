@@ -5,8 +5,8 @@ from lerobot.robots.xlerobot import XLerobot, XLerobotConfig
 
 
 ROBOT_ID = "xlerobot"
-LEFT_HEAD_PORT = "/dev/tty.usbmodem5AE60816781"
-RIGHT_BASE_PORT = "/dev/tty.usbmodem5AE60821991"
+LEFT_HEAD_PORT = "/dev/ttyACM1"
+RIGHT_BASE_PORT = "/dev/ttyACM0"
 
 
 def main() -> None:

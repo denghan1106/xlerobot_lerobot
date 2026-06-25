@@ -5,7 +5,7 @@ PYTHONPATH=src python -m lerobot.robots.xlerobot.xlerobot_host --robot.id=my_xle
 
 # To Run the teleop:
 '''
-PYTHONPATH=src python -m examples.xlerobot.teleoperate_XBOX
+PYTHONPATH=src python examples/5_xlerobot_teleop_xbox.py
 '''
 
 import time
@@ -19,6 +19,9 @@ from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
 from lerobot.model.SO101Robot import SO101Kinematics
 
+STICK_DEADZONE = 0.5
+TRIGGER_DEADZONE = 0.5
+
 # Keymaps (semantic action: controller mapping) - Intuitive human control
 LEFT_KEYMAP = {
     # Left stick controls left arm XY (when not pressed)
@@ -29,8 +32,9 @@ LEFT_KEYMAP = {
     # LB pressed controls left arm pitch and wrist_roll
     'pitch+': 'lb_up', 'pitch-': 'lb_down',
     'wrist_roll+': 'lb_right', 'wrist_roll-': 'lb_left',
-    # Left trigger controls left gripper
-    'gripper+': 'left_trigger',
+    # Trigger closes the gripper; LB + trigger opens it.
+    'gripper-': 'left_trigger',
+    'gripper+': 'left_trigger_lb',
     # Head motors
     "head_motor_1+": 'x', "head_motor_1-": 'b',
     "head_motor_2+": 'a', "head_motor_2-": 'y',
@@ -44,18 +48,20 @@ RIGHT_KEYMAP = {
     # RB pressed controls right arm pitch and wrist_roll
     'pitch+': 'rb_up', 'pitch-': 'rb_down',
     'wrist_roll+': 'rb_right', 'wrist_roll-': 'rb_left',
-    # Right trigger controls right gripper
-    'gripper+': 'right_trigger',
+    # Trigger closes the gripper; RB + trigger opens it.
+    'gripper-': 'right_trigger',
+    'gripper+': 'right_trigger_rb',
 }
 
 # Base control keymap - Only forward/backward and rotate left/right
 BASE_KEYMAP = {
-    'forward': 'dpad_down', 'backward': 'dpad_up',
+    'forward': 'dpad_up', 'backward': 'dpad_down',
     'rotate_left': 'dpad_left', 'rotate_right': 'dpad_right',
 }
 
 # Global reset key for all components
 RESET_KEY = 'back'
+QUIT_KEY = 'start'
 
 LEFT_JOINT_MAP = {
     "shoulder_pan": "left_arm_shoulder_pan",
@@ -80,7 +86,7 @@ HEAD_MOTOR_MAP = {
 }
 
 class SimpleHeadControl:
-    def __init__(self, initial_obs, kp=1):
+    def __init__(self, initial_obs, kp=0.81):
         self.kp = kp
         self.degree_step = 1
         # Initialize head motor positions
@@ -109,8 +115,9 @@ class SimpleHeadControl:
             self.target_positions["head_motor_2"] -= self.degree_step
             print(f"[HEAD] head_motor_2: {self.target_positions['head_motor_2']}")
 
-    def p_control_action(self, robot):
-        obs = robot.get_observation()
+    def p_control_action(self, robot, obs=None):
+        if obs is None:
+            obs = robot.get_observation()
         action = {}
         for motor in self.target_positions:
             current = obs.get(f"{HEAD_MOTOR_MAP[motor]}.pos", 0.0)
@@ -120,7 +127,7 @@ class SimpleHeadControl:
         return action
 
 class SimpleTeleopArm:
-    def __init__(self, kinematics, joint_map, initial_obs, prefix="left", kp=1):
+    def __init__(self, kinematics, joint_map, initial_obs, prefix="left", kp=0.81):
         self.kinematics = kinematics
         self.joint_map = joint_map
         self.prefix = prefix  # To distinguish left and right arm
@@ -139,8 +146,8 @@ class SimpleTeleopArm:
         self.current_y = 0.1131
         self.pitch = 0.0
         # Set the degree step and xy step
-        self.degree_step = 2
-        self.xy_step = 0.005
+        self.degree_step = 3
+        self.xy_step = 0.0081
         # Set target positions to zero for P control
         self.target_positions = {
             "shoulder_pan": 0.0,
@@ -189,14 +196,15 @@ class SimpleTeleopArm:
             self.target_positions["wrist_roll"] -= self.degree_step
             print(f"[{self.prefix}] wrist_roll: {self.target_positions['wrist_roll']}")
         
-        # Gripper control with auto-close functionality
+        # Gripper control keeps the last target instead of auto-opening on release.
         if key_state.get('gripper+'):
-            # Trigger pressed - open gripper (0.1)
-            self.target_positions["gripper"] = 2
-            print(f"[{self.prefix}] gripper: CLOSED")
-        else:
-            self.target_positions["gripper"] = 90
-            print(f"[{self.prefix}] gripper: auto-opening to {self.target_positions['gripper']:.1f}")
+            self.target_positions["gripper"] += self.degree_step
+            self.target_positions["gripper"] = min(self.target_positions["gripper"], 100.0)
+            print(f"[{self.prefix}] gripper: {self.target_positions['gripper']}")
+        if key_state.get('gripper-'):
+            self.target_positions["gripper"] -= self.degree_step
+            self.target_positions["gripper"] = max(self.target_positions["gripper"], 0.0)
+            print(f"[{self.prefix}] gripper: {self.target_positions['gripper']}")
         
         if key_state.get('pitch+'):
             self.pitch += self.degree_step
@@ -237,8 +245,9 @@ class SimpleTeleopArm:
         )
         # print(f"[{self.prefix}] wrist_flex: {self.target_positions['wrist_flex']}")
 
-    def p_control_action(self, robot):
-        obs = robot.get_observation()
+    def p_control_action(self, robot, obs=None):
+        if obs is None:
+            obs = robot.get_observation()
         current = {j: obs[f"{self.prefix}_arm_{j}.pos"] for j in self.joint_map}
         action = {}
         for j in self.target_positions:
@@ -248,39 +257,73 @@ class SimpleTeleopArm:
         return action
     
 
+def get_axis(joystick, index, default=0.0):
+    return joystick.get_axis(index) if joystick.get_numaxes() > index else default
+
+
+def get_button(joystick, index):
+    return bool(joystick.get_button(index)) if joystick.get_numbuttons() > index else False
+
+
+def get_hat(joystick):
+    return joystick.get_hat(0) if joystick.get_numhats() > 0 else (0, 0)
+
+
+def trigger_pressed(value):
+    return value > TRIGGER_DEADZONE
+
+
+def print_controller_state(joystick):
+    pygame.event.pump()
+    axes = [round(joystick.get_axis(i), 3) for i in range(joystick.get_numaxes())]
+    buttons = [joystick.get_button(i) for i in range(joystick.get_numbuttons())]
+    hats = [joystick.get_hat(i) for i in range(joystick.get_numhats())]
+    print(f"[MAIN] Controller axes at rest: {axes}")
+    print(f"[MAIN] Controller buttons: {len(buttons)}, hats: {hats}")
+
+
 # --- XBOX Controller Mapping ---
 def get_xbox_key_state(joystick, keymap):
     """
     Map XBOX controller state to semantic action booleans using the provided keymap.
     """
-    # Read axes, buttons, hats
-    axes = [joystick.get_axis(i) for i in range(joystick.get_numaxes())]
-    buttons = [joystick.get_button(i) for i in range(joystick.get_numbuttons())]
-    hats = joystick.get_hat(0) if joystick.get_numhats() > 0 else (0, 0)
-    
     # Get stick pressed states
-    left_stick_pressed = bool(buttons[9]) if len(buttons) > 9 else False
-    right_stick_pressed = bool(buttons[10]) if len(buttons) > 10 else False
-    lb_pressed = bool(buttons[4]) if len(buttons) > 4 else False
-    rb_pressed = bool(buttons[5]) if len(buttons) > 5 else False
+    left_x = get_axis(joystick, 0)
+    left_y = get_axis(joystick, 1)
+    right_x = get_axis(joystick, 2)
+    right_y = get_axis(joystick, 3)
+    left_trigger = get_axis(joystick, 4)
+    right_trigger = get_axis(joystick, 5)
+    hats = get_hat(joystick)
+
+    left_stick_pressed = get_button(joystick, 9)
+    right_stick_pressed = get_button(joystick, 10)
+    lb_pressed = get_button(joystick, 4)
+    rb_pressed = get_button(joystick, 5)
 
     # Map controller state to semantic actions
     state = {}
     for action, control in keymap.items():
         if control == 'left_trigger':
-            state[action] = axes[2] > 0.5 if len(axes) > 2 else False
+            state[action] = trigger_pressed(left_trigger) and not lb_pressed
+        elif control == 'left_trigger_lb':
+            state[action] = trigger_pressed(left_trigger) and lb_pressed
         elif control == 'right_trigger':
-            state[action] = axes[5] > 0.5 if len(axes) > 5 else False
+            state[action] = trigger_pressed(right_trigger) and not rb_pressed
+        elif control == 'right_trigger_rb':
+            state[action] = trigger_pressed(right_trigger) and rb_pressed
         elif control == 'a':
-            state[action] = bool(buttons[0])
+            state[action] = get_button(joystick, 0)
         elif control == 'b':
-            state[action] = bool(buttons[1])
+            state[action] = get_button(joystick, 1)
         elif control == 'x':
-            state[action] = bool(buttons[2])
+            state[action] = get_button(joystick, 2)
         elif control == 'y':
-            state[action] = bool(buttons[3])
+            state[action] = get_button(joystick, 3)
         elif control == 'back':
-            state[action] = bool(buttons[6])
+            state[action] = get_button(joystick, 6)
+        elif control == 'start':
+            state[action] = get_button(joystick, 7)
         elif control == 'dpad_up':
             state[action] = hats[1] == 1
         elif control == 'dpad_down':
@@ -291,50 +334,50 @@ def get_xbox_key_state(joystick, keymap):
             state[action] = hats[0] == 1
         # Left stick controls (when not pressed)
         elif control == 'left_stick_up':
-            state[action] = (not left_stick_pressed) and (not lb_pressed) and (axes[1] < -0.5) if len(axes) > 1 else False
+            state[action] = (not left_stick_pressed) and (not lb_pressed) and (left_y < -STICK_DEADZONE)
         elif control == 'left_stick_down':
-            state[action] = (not left_stick_pressed) and (not lb_pressed) and (axes[1] > 0.5) if len(axes) > 1 else False
+            state[action] = (not left_stick_pressed) and (not lb_pressed) and (left_y > STICK_DEADZONE)
         elif control == 'left_stick_left':
-            state[action] = (not left_stick_pressed) and (not lb_pressed) and (axes[0] < -0.5) if len(axes) > 0 else False
+            state[action] = (not left_stick_pressed) and (not lb_pressed) and (left_x < -STICK_DEADZONE)
         elif control == 'left_stick_right':
-            state[action] = (not left_stick_pressed) and (not lb_pressed) and (axes[0] > 0.5) if len(axes) > 0 else False
+            state[action] = (not left_stick_pressed) and (not lb_pressed) and (left_x > STICK_DEADZONE)
         # Right stick controls (when not pressed) - Fixed axis mapping
         elif control == 'right_stick_up':
-            state[action] = (not right_stick_pressed) and (not rb_pressed) and (axes[4] < -0.5) if len(axes) > 4 else False
+            state[action] = (not right_stick_pressed) and (not rb_pressed) and (right_y < -STICK_DEADZONE)
         elif control == 'right_stick_down':
-            state[action] = (not right_stick_pressed) and (not rb_pressed) and (axes[4] > 0.5) if len(axes) > 4 else False
+            state[action] = (not right_stick_pressed) and (not rb_pressed) and (right_y > STICK_DEADZONE)
         elif control == 'right_stick_left':
-            state[action] = (not right_stick_pressed) and (not rb_pressed) and (axes[3] < -0.5) if len(axes) > 3 else False
+            state[action] = (not right_stick_pressed) and (not rb_pressed) and (right_x < -STICK_DEADZONE)
         elif control == 'right_stick_right':
-            state[action] = (not right_stick_pressed) and (not rb_pressed) and (axes[3] > 0.5) if len(axes) > 3 else False
+            state[action] = (not right_stick_pressed) and (not rb_pressed) and (right_x > STICK_DEADZONE)
         # Left stick pressed controls
         elif control == 'left_stick_pressed_right':
-            state[action] = left_stick_pressed and (not lb_pressed) and (axes[0] > 0.5) if len(axes) > 0 else False
+            state[action] = left_stick_pressed and (not lb_pressed) and (left_x > STICK_DEADZONE)
         elif control == 'left_stick_pressed_left':
-            state[action] = left_stick_pressed and (not lb_pressed) and (axes[0] < -0.5) if len(axes) > 0 else False
+            state[action] = left_stick_pressed and (not lb_pressed) and (left_x < -STICK_DEADZONE)
         # Right stick pressed controls - Fixed axis mapping
         elif control == 'right_stick_pressed_right':
-            state[action] = right_stick_pressed and (not rb_pressed) and (axes[3] > 0.5) if len(axes) > 3 else False
+            state[action] = right_stick_pressed and (not rb_pressed) and (right_x > STICK_DEADZONE)
         elif control == 'right_stick_pressed_left':
-            state[action] = right_stick_pressed and (not rb_pressed) and (axes[3] < -0.5) if len(axes) > 3 else False
+            state[action] = right_stick_pressed and (not rb_pressed) and (right_x < -STICK_DEADZONE)
         # LB pressed controls (only when stick is moved)
         elif control == 'lb_up':
-            state[action] = lb_pressed and (abs(axes[1]) > 0.5) and (axes[1] < -0.5) if len(axes) > 1 else False
+            state[action] = lb_pressed and (left_y < -STICK_DEADZONE)
         elif control == 'lb_down':
-            state[action] = lb_pressed and (abs(axes[1]) > 0.5) and (axes[1] > 0.5) if len(axes) > 1 else False
+            state[action] = lb_pressed and (left_y > STICK_DEADZONE)
         elif control == 'lb_right':
-            state[action] = lb_pressed and (abs(axes[0]) > 0.5) and (axes[0] > 0.5) if len(axes) > 0 else False
+            state[action] = lb_pressed and (left_x > STICK_DEADZONE)
         elif control == 'lb_left':
-            state[action] = lb_pressed and (abs(axes[0]) > 0.5) and (axes[0] < -0.5) if len(axes) > 0 else False
+            state[action] = lb_pressed and (left_x < -STICK_DEADZONE)
         # RB pressed controls (only when stick is moved)
         elif control == 'rb_up':
-            state[action] = rb_pressed and (abs(axes[4]) > 0.5) and (axes[4] < -0.5) if len(axes) > 4 else False
+            state[action] = rb_pressed and (right_y < -STICK_DEADZONE)
         elif control == 'rb_down':
-            state[action] = rb_pressed and (abs(axes[4]) > 0.5) and (axes[4] > 0.5) if len(axes) > 4 else False
+            state[action] = rb_pressed and (right_y > STICK_DEADZONE)
         elif control == 'rb_right':
-            state[action] = rb_pressed and (abs(axes[3]) > 0.5) and (axes[3] > 0.5) if len(axes) > 3 else False
+            state[action] = rb_pressed and (right_x > STICK_DEADZONE)
         elif control == 'rb_left':
-            state[action] = rb_pressed and (abs(axes[3]) > 0.5) and (axes[3] < -0.5) if len(axes) > 3 else False
+            state[action] = rb_pressed and (right_x < -STICK_DEADZONE)
         else:
             state[action] = False
     return state
@@ -343,22 +386,20 @@ def get_base_action(joystick, robot):
     """
     Get base action from XBOX controller input - simplified to only forward/backward and rotate.
     """
-    # Read controller state
-    buttons = [joystick.get_button(i) for i in range(joystick.get_numbuttons())]
-    hats = joystick.get_hat(0) if joystick.get_numhats() > 0 else (0, 0)
+    hats = get_hat(joystick)
     
     # Get pressed keys for base control
     pressed_keys = set()
     
-    # Map controller inputs to keyboard-like keys for base control
+    # Map controller inputs through the robot's configured keyboard base controls.
     if hats[1] == 1:   # D-pad up
-        pressed_keys.add('k')  # Forward
+        pressed_keys.add(robot.teleop_keys["forward"])
     if hats[1] == -1:  # D-pad down
-        pressed_keys.add('i')  # Backward
+        pressed_keys.add(robot.teleop_keys["backward"])
     if hats[0] == -1:  # D-pad left
-        pressed_keys.add('u')  # Rotate left
+        pressed_keys.add(robot.teleop_keys["rotate_left"])
     if hats[0] == 1:   # D-pad right
-        pressed_keys.add('o')  # Rotate right
+        pressed_keys.add(robot.teleop_keys["rotate_right"])
     
     # Convert to numpy array and get base action
     keyboard_keys = np.array(list(pressed_keys))
@@ -366,53 +407,9 @@ def get_base_action(joystick, robot):
     
     return base_action
 
-def get_base_speed_control(joystick):
-    """
-    Get base speed control from XBOX controller - LB for speed decrease, RB for speed increase.
-    Returns speed multiplier (1.0, 2.0, or 3.0) and prints current speed level.
-    """
-    # Read controller state
-    buttons = [joystick.get_button(i) for i in range(joystick.get_numbuttons())]
-    
-    # Get LB and RB states
-    lb_pressed = bool(buttons[4]) if len(buttons) > 4 else False
-    rb_pressed = bool(buttons[5]) if len(buttons) > 5 else False
-    
-    # Get current speed level from global variable
-    global current_base_speed_level
-    if 'current_base_speed_level' not in globals():
-        current_base_speed_level = 1  # Default speed level
-    
-    # Speed control logic
-    if lb_pressed and not rb_pressed:
-        # LB pressed alone - decrease speed
-        if current_base_speed_level > 1:
-            current_base_speed_level -= 1
-            print(f"[BASE] Speed decreased to level {current_base_speed_level}")
-    elif rb_pressed and not lb_pressed:
-        # RB pressed alone - increase speed
-        if current_base_speed_level < 3:
-            current_base_speed_level += 1
-            print(f"[BASE] Speed increased to level {current_base_speed_level}")
-    
-    # Map speed level to multiplier
-    speed_multiplier = float(current_base_speed_level)
-    
-    return speed_multiplier
-
 
 def main():
-    FPS = 30
-    robot_config = XLerobotConfig()
-    robot = XLerobot(robot_config)
-    try:
-        robot.connect()
-        print(f"[MAIN] Successfully connected to robot")
-    except Exception as e:
-        print(f"[MAIN] Failed to connect to robot: {e}")
-        print(robot_config)
-        print(robot)
-        return
+    FPS = 50
 
     init_rerun(session_name="xlerobot_teleop_xbox")
 
@@ -421,10 +418,29 @@ def main():
     pygame.joystick.init()
     if pygame.joystick.get_count() == 0:
         print("No XBOX controller detected!")
+        pygame.quit()
         return
     joystick = pygame.joystick.Joystick(0)
     joystick.init()
     print(f"[MAIN] Using controller: {joystick.get_name()}")
+    print_controller_state(joystick)
+
+    robot_config = XLerobotConfig(
+        id="xlerobot",
+        port1="/dev/ttyACM1",
+        port2="/dev/ttyACM0",
+    )
+    robot = XLerobot(robot_config)
+    try:
+        robot.connect()
+        print(f"[MAIN] Successfully connected to robot")
+    except Exception as e:
+        print(f"[MAIN] Failed to connect to robot: {e}")
+        print(robot_config)
+        print(robot)
+        joystick.quit()
+        pygame.quit()
+        return
 
     # Init the arm and head instances
     obs = robot.get_observation()
@@ -437,16 +453,20 @@ def main():
     # Move both arms and head to zero position at start
     left_arm.move_to_zero_position(robot)
     right_arm.move_to_zero_position(robot)
+    precise_sleep(0.2)
 
     try:
         while True:
+            loop_start_t = time.perf_counter()
             pygame.event.pump()
             left_key_state = get_xbox_key_state(joystick, LEFT_KEYMAP)
             right_key_state = get_xbox_key_state(joystick, RIGHT_KEYMAP)
             
-            # Check for global reset (back button)
-            buttons = [joystick.get_button(i) for i in range(joystick.get_numbuttons())]
-            global_reset = bool(buttons[6]) if len(buttons) > 6 else False
+            if get_button(joystick, 7):  # Start
+                print("[MAIN] Start button pressed; stopping and disconnecting...")
+                break
+
+            global_reset = get_button(joystick, 6)  # Back
             
             # Handle global reset for all components
             if global_reset:
@@ -461,28 +481,24 @@ def main():
             right_arm.handle_keys(right_key_state)
             head_control.handle_keys(left_key_state)  # Head controlled by left arm keymap
 
-            left_action = left_arm.p_control_action(robot)
-            right_action = right_arm.p_control_action(robot)
-            head_action = head_control.p_control_action(robot)
+            obs = robot.get_observation()
+            left_action = left_arm.p_control_action(robot, obs)
+            right_action = right_arm.p_control_action(robot, obs)
+            head_action = head_control.p_control_action(robot, obs)
 
-            # Get base action and speed control from controller
             base_action = get_base_action(joystick, robot)
-            speed_multiplier = get_base_speed_control(joystick)
-            
-            # Apply speed multiplier to base actions if they exist
-            if base_action:
-                for key in base_action:
-                    if 'vel' in key or 'velocity' in key:  # Apply to velocity commands
-                        base_action[key] *= speed_multiplier
 
             # Merge all actions
             action = {**left_action, **right_action, **head_action, **base_action}
             robot.send_action(action)
 
-            obs = robot.get_observation()
             log_rerun_data(obs, action)
+            precise_sleep(max(1.0 / FPS - (time.perf_counter() - loop_start_t), 0.0))
     finally:
-        robot.disconnect()
+        if robot.bus1.is_connected or robot.bus2.is_connected:
+            robot.disconnect()
+        joystick.quit()
+        pygame.quit()
         print("Teleoperation ended.")
 
 if __name__ == "__main__":

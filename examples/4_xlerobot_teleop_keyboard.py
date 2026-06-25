@@ -399,8 +399,8 @@ def main():
     # For local/wired connection
     robot_config = XLerobotConfig(
         id=robot_name,
-        port1="/dev/tty.usbmodem5AE60816781",
-        port2="/dev/tty.usbmodem5AE60821991",
+        port1="/dev/ttyACM1",
+        port2="/dev/ttyACM0",
     )
     robot = XLerobot(robot_config)
     
