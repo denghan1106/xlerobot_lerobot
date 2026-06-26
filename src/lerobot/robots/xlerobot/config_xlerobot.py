@@ -24,23 +24,23 @@ from ..config import RobotConfig
 def xlerobot_cameras_config() -> dict[str, CameraConfig]:
     return {
         "center": OpenCVCameraConfig(
-            index_or_path="/dev/video2",
+            index_or_path="/dev/xlerobot_cam_top",
             fps=30,
             width=640,
             height=480,
             rotation=Cv2Rotation.ROTATE_180,
             fourcc="MJPG",
         ),
-        "right_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video0",
+        "right": OpenCVCameraConfig(
+            index_or_path="/dev/xlerobot_cam_right",
             fps=30,
             width=640,
             height=480,
             rotation=Cv2Rotation.ROTATE_180,
             fourcc="MJPG",
         ),
-        "left_wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video4",
+        "left": OpenCVCameraConfig(
+            index_or_path="/dev/xlerobot_cam_left",
             fps=30,
             width=640,
             height=480,
@@ -64,8 +64,8 @@ def xlerobot_cameras_config() -> dict[str, CameraConfig]:
 @dataclass
 class XLerobotConfig(RobotConfig):
     
-    port1: str = "/dev/ttyACM0"  # port to connect to the bus (so101 + head camera)
-    port2: str = "/dev/ttyACM1"  # port to connect to the bus (same as lekiwi setup)
+    port1: str = "/dev/xlerobot_arm_left"  # port to connect to the left arm / leader bus
+    port2: str = "/dev/xlerobot_arm_right"  # port to connect to the right arm / follower bus
     disable_torque_on_disconnect: bool = True
 
     # `max_relative_target` limits the magnitude of the relative positional target vector for safety purposes.

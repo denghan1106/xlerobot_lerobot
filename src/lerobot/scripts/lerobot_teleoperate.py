@@ -168,6 +168,9 @@ def teleop_loop(
         # given that it is the identity processor as default
         obs = robot.get_observation()
 
+        if hasattr(teleop, "set_robot_reference"):
+            teleop.set_robot_reference(obs)
+
         if robot.name == "unitree_g1":
             teleop.send_feedback(obs)
 
@@ -193,12 +196,46 @@ def teleop_loop(
                 compress_images=display_compressed_images,
             )
 
-            print("\n" + "-" * (display_len + 10))
-            print(f"{'NAME':<{display_len}} | {'NORM':>7}")
-            # Display the final robot action that was sent
-            for motor, value in robot_action_to_send.items():
-                print(f"{motor:<{display_len}} | {value:>7.2f}")
-            move_cursor_up(len(robot_action_to_send) + 3)
+            debug_action = (
+                teleop.get_debug_action() if hasattr(teleop, "get_debug_action") else {}
+            )
+            leader_values = debug_action.get("leader", {})
+            mapped_values = debug_action.get("mapped", {})
+            follower_values = {
+                key: obs_transition[key]
+                for key in robot.action_features
+                if key in obs_transition and not hasattr(obs_transition[key], "shape")
+            }
+
+            action_feature_names = " ".join(robot.action_features)
+            if "left_arm_" in action_feature_names:
+                leader_label = "left_arm_leader"
+                follower_now_label = "left_arm_follower_now"
+                follower_goal_label = "left_arm_follower_goal"
+            elif "right_arm_" in action_feature_names:
+                leader_label = "right_arm_leader"
+                follower_now_label = "right_arm_follower_now"
+                follower_goal_label = "right_arm_follower_goal"
+            else:
+                leader_label = "leader"
+                follower_now_label = "follower_now"
+                follower_goal_label = "follower_goal"
+
+            rows = []
+            for key, value in leader_values.items():
+                rows.append((leader_label, key, value))
+            for key, value in follower_values.items():
+                rows.append((follower_now_label, key, value))
+            for key, value in (mapped_values or robot_action_to_send).items():
+                rows.append((follower_goal_label, key, value))
+
+            name_len = max([display_len, *(len(name) for _, name, _ in rows)] or [display_len])
+            print("\n" + "-" * (name_len + 25))
+            side_len = max([13, *(len(side) for side, _, _ in rows)] or [13])
+            print(f"{'SIDE':<{side_len}} | {'NAME':<{name_len}} | {'NORM':>7}")
+            for side, motor, value in rows:
+                print(f"{side:<{side_len}} | {motor:<{name_len}} | {value:>7.2f}")
+            move_cursor_up(len(rows) + 3)
 
         dt_s = time.perf_counter() - loop_start
         precise_sleep(max(1 / fps - dt_s, 0.0))

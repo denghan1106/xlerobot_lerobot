@@ -3,29 +3,28 @@ from typing import Any
 from lerobot.teleoperators.so_leader.so_leader import SOLeader
 from lerobot.utils.constants import HF_LEROBOT_CALIBRATION, ROBOTS
 
-from .config_xlerobot_right_arm_leader import XLerobotRightArmLeaderConfig
+from .config_xlerobot_left_arm_leader import XLerobotLeftArmLeaderConfig
 
 
 _JOINT_MAP = {
-    "shoulder_pan.pos": "right_arm_shoulder_pan.pos",
-    "shoulder_lift.pos": "right_arm_shoulder_lift.pos",
-    "elbow_flex.pos": "right_arm_elbow_flex.pos",
-    "wrist_flex.pos": "right_arm_wrist_flex.pos",
-    "wrist_roll.pos": "right_arm_wrist_roll.pos",
-    "gripper.pos": "right_arm_gripper.pos",
+    "shoulder_pan.pos": "left_arm_shoulder_pan.pos",
+    "shoulder_lift.pos": "left_arm_shoulder_lift.pos",
+    "elbow_flex.pos": "left_arm_elbow_flex.pos",
+    "wrist_flex.pos": "left_arm_wrist_flex.pos",
+    "wrist_roll.pos": "left_arm_wrist_roll.pos",
+    "gripper.pos": "left_arm_gripper.pos",
 }
 _INVERSE_JOINT_MAP = {value: key for key, value in _JOINT_MAP.items()}
 _LEADER_DEBUG_MAP = _JOINT_MAP
 
 
-class XLerobotRightArmLeader(SOLeader):
-    config_class = XLerobotRightArmLeaderConfig
-    # Reuse the existing SO leader calibration directory for the same physical leader arm.
+class XLerobotLeftArmLeader(SOLeader):
+    config_class = XLerobotLeftArmLeaderConfig
     name = "so_leader"
 
-    def __init__(self, config: XLerobotRightArmLeaderConfig):
+    def __init__(self, config: XLerobotLeftArmLeaderConfig):
         super().__init__(config)
-        self._load_full_xlerobot_calibration_if_needed("left_arm")
+        self._load_full_xlerobot_calibration_if_needed("right_arm")
         self._alignment_offsets: dict[str, float] | None = None
         self._last_leader_action: dict[str, float] = {}
         self._last_mapped_action: dict[str, float] = {}

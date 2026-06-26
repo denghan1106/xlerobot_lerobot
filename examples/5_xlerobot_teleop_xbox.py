@@ -11,7 +11,13 @@ PYTHONPATH=src python examples/5_xlerobot_teleop_xbox.py
 import time
 import numpy as np
 import math
+import sys
 import pygame
+
+try:
+    import pygame._sdl2.controller as sdl_controller
+except Exception:
+    sdl_controller = None
 
 from lerobot.robots.xlerobot import XLerobotConfig, XLerobot
 # from lerobot.utils.robot_utils import busy_wait
@@ -257,49 +263,144 @@ class SimpleTeleopArm:
         return action
     
 
-def get_axis(joystick, index, default=0.0):
-    return joystick.get_axis(index) if joystick.get_numaxes() > index else default
+class XboxInput:
+    # SDL GameController standard ids. Use these first for official Xbox pads.
+    SDL_BUTTON = {
+        "a": 0,
+        "b": 1,
+        "x": 2,
+        "y": 3,
+        "back": 4,
+        "start": 6,
+        "left_stick": 7,
+        "right_stick": 8,
+        "lb": 9,
+        "rb": 10,
+        "dpad_up": 11,
+        "dpad_down": 12,
+        "dpad_left": 13,
+        "dpad_right": 14,
+    }
+    # Raw pygame joystick fallback for xpad-like Linux devices.
+    RAW_BUTTON = {
+        "a": 0,
+        "b": 1,
+        "x": 2,
+        "y": 3,
+        "lb": 4,
+        "rb": 5,
+        "back": 6,
+        "start": 7,
+        "left_stick": 9,
+        "right_stick": 10,
+    }
+    AXIS = {
+        "left_x": 0,
+        "left_y": 1,
+        "right_x": 2,
+        "right_y": 3,
+        "left_trigger": 4,
+        "right_trigger": 5,
+    }
 
+    def __init__(self, index=0):
+        self.controller = None
+        self.joystick = pygame.joystick.Joystick(index)
+        self.joystick.init()
 
-def get_button(joystick, index):
-    return bool(joystick.get_button(index)) if joystick.get_numbuttons() > index else False
+        try:
+            if sdl_controller is not None:
+                sdl_controller.init()
+            if sdl_controller is not None and sdl_controller.is_controller(index):
+                self.controller = sdl_controller.Controller(index)
+                self.controller.init()
+        except Exception as exc:
+            print(f"[MAIN] SDL controller mapping unavailable, using raw joystick mapping: {exc}")
 
+    @property
+    def name(self):
+        if self.controller is not None:
+            return self.controller.name() if callable(self.controller.name) else self.controller.name
+        return self.joystick.get_name()
 
-def get_hat(joystick):
-    return joystick.get_hat(0) if joystick.get_numhats() > 0 else (0, 0)
+    @property
+    def mode(self):
+        return "SDL Controller" if self.controller is not None else "Raw Joystick"
+
+    def close(self):
+        if self.controller is not None:
+            self.controller.quit()
+        self.joystick.quit()
+
+    def _axis_value(self, index):
+        if self.controller is not None:
+            value = self.controller.get_axis(index)
+        else:
+            if self.joystick.get_numaxes() <= index:
+                return 0.0
+            value = self.joystick.get_axis(index)
+
+        if abs(value) <= 1.0:
+            return float(value)
+        return max(-1.0, min(1.0, float(value) / 32767.0))
+
+    def axis(self, name):
+        return self._axis_value(self.AXIS[name])
+
+    def button(self, name):
+        if self.controller is not None:
+            return bool(self.controller.get_button(self.SDL_BUTTON[name]))
+
+        if name.startswith("dpad_"):
+            hat = self.hat()
+            return {
+                "dpad_up": hat[1] == 1,
+                "dpad_down": hat[1] == -1,
+                "dpad_left": hat[0] == -1,
+                "dpad_right": hat[0] == 1,
+            }[name]
+
+        index = self.RAW_BUTTON[name]
+        return bool(self.joystick.get_button(index)) if self.joystick.get_numbuttons() > index else False
+
+    def hat(self):
+        if self.controller is not None:
+            x = int(self.button("dpad_right")) - int(self.button("dpad_left"))
+            y = int(self.button("dpad_up")) - int(self.button("dpad_down"))
+            return x, y
+        return self.joystick.get_hat(0) if self.joystick.get_numhats() > 0 else (0, 0)
 
 
 def trigger_pressed(value):
     return value > TRIGGER_DEADZONE
 
 
-def print_controller_state(joystick):
+def print_controller_state(gamepad):
     pygame.event.pump()
-    axes = [round(joystick.get_axis(i), 3) for i in range(joystick.get_numaxes())]
-    buttons = [joystick.get_button(i) for i in range(joystick.get_numbuttons())]
-    hats = [joystick.get_hat(i) for i in range(joystick.get_numhats())]
+    axes = {name: round(gamepad.axis(name), 3) for name in XboxInput.AXIS}
+    buttons = [name for name in XboxInput.SDL_BUTTON if gamepad.button(name)]
+    print(f"[MAIN] Input mode: {gamepad.mode}")
     print(f"[MAIN] Controller axes at rest: {axes}")
-    print(f"[MAIN] Controller buttons: {len(buttons)}, hats: {hats}")
+    print(f"[MAIN] Pressed buttons at rest: {buttons}, hat: {gamepad.hat()}")
 
 
 # --- XBOX Controller Mapping ---
-def get_xbox_key_state(joystick, keymap):
+def get_xbox_key_state(gamepad, keymap):
     """
     Map XBOX controller state to semantic action booleans using the provided keymap.
     """
     # Get stick pressed states
-    left_x = get_axis(joystick, 0)
-    left_y = get_axis(joystick, 1)
-    right_x = get_axis(joystick, 2)
-    right_y = get_axis(joystick, 3)
-    left_trigger = get_axis(joystick, 4)
-    right_trigger = get_axis(joystick, 5)
-    hats = get_hat(joystick)
+    left_x = gamepad.axis("left_x")
+    left_y = gamepad.axis("left_y")
+    right_x = gamepad.axis("right_x")
+    right_y = gamepad.axis("right_y")
+    left_trigger = gamepad.axis("left_trigger")
+    right_trigger = gamepad.axis("right_trigger")
 
-    left_stick_pressed = get_button(joystick, 9)
-    right_stick_pressed = get_button(joystick, 10)
-    lb_pressed = get_button(joystick, 4)
-    rb_pressed = get_button(joystick, 5)
+    left_stick_pressed = gamepad.button("left_stick")
+    right_stick_pressed = gamepad.button("right_stick")
+    lb_pressed = gamepad.button("lb")
+    rb_pressed = gamepad.button("rb")
 
     # Map controller state to semantic actions
     state = {}
@@ -313,25 +414,25 @@ def get_xbox_key_state(joystick, keymap):
         elif control == 'right_trigger_rb':
             state[action] = trigger_pressed(right_trigger) and rb_pressed
         elif control == 'a':
-            state[action] = get_button(joystick, 0)
+            state[action] = gamepad.button("a")
         elif control == 'b':
-            state[action] = get_button(joystick, 1)
+            state[action] = gamepad.button("b")
         elif control == 'x':
-            state[action] = get_button(joystick, 2)
+            state[action] = gamepad.button("x")
         elif control == 'y':
-            state[action] = get_button(joystick, 3)
+            state[action] = gamepad.button("y")
         elif control == 'back':
-            state[action] = get_button(joystick, 6)
+            state[action] = gamepad.button("back")
         elif control == 'start':
-            state[action] = get_button(joystick, 7)
+            state[action] = gamepad.button("start")
         elif control == 'dpad_up':
-            state[action] = hats[1] == 1
+            state[action] = gamepad.button("dpad_up")
         elif control == 'dpad_down':
-            state[action] = hats[1] == -1
+            state[action] = gamepad.button("dpad_down")
         elif control == 'dpad_left':
-            state[action] = hats[0] == -1
+            state[action] = gamepad.button("dpad_left")
         elif control == 'dpad_right':
-            state[action] = hats[0] == 1
+            state[action] = gamepad.button("dpad_right")
         # Left stick controls (when not pressed)
         elif control == 'left_stick_up':
             state[action] = (not left_stick_pressed) and (not lb_pressed) and (left_y < -STICK_DEADZONE)
@@ -382,23 +483,21 @@ def get_xbox_key_state(joystick, keymap):
             state[action] = False
     return state
 
-def get_base_action(joystick, robot):
+def get_base_action(gamepad, robot):
     """
     Get base action from XBOX controller input - simplified to only forward/backward and rotate.
     """
-    hats = get_hat(joystick)
-    
     # Get pressed keys for base control
     pressed_keys = set()
     
     # Map controller inputs through the robot's configured keyboard base controls.
-    if hats[1] == 1:   # D-pad up
+    if gamepad.button("dpad_up"):
         pressed_keys.add(robot.teleop_keys["forward"])
-    if hats[1] == -1:  # D-pad down
+    if gamepad.button("dpad_down"):
         pressed_keys.add(robot.teleop_keys["backward"])
-    if hats[0] == -1:  # D-pad left
+    if gamepad.button("dpad_left"):
         pressed_keys.add(robot.teleop_keys["rotate_left"])
-    if hats[0] == 1:   # D-pad right
+    if gamepad.button("dpad_right"):
         pressed_keys.add(robot.teleop_keys["rotate_right"])
     
     # Convert to numpy array and get base action
@@ -408,10 +507,32 @@ def get_base_action(joystick, robot):
     return base_action
 
 
+def run_controller_test(gamepad):
+    print("[TEST] Press buttons/sticks/triggers to inspect mapping. Press Start/Menu to exit.")
+    previous_buttons = set()
+    previous_axes = None
+    while True:
+        pygame.event.pump()
+        pressed_buttons = {name for name in XboxInput.SDL_BUTTON if gamepad.button(name)}
+        axes = {name: round(gamepad.axis(name), 2) for name in XboxInput.AXIS}
+        active_axes = {name: value for name, value in axes.items() if abs(value) > 0.2}
+
+        if pressed_buttons != previous_buttons or active_axes != previous_axes:
+            print(f"[TEST] buttons={sorted(pressed_buttons)} axes={active_axes} hat={gamepad.hat()}")
+            previous_buttons = pressed_buttons
+            previous_axes = active_axes
+
+        if gamepad.button("start"):
+            break
+        precise_sleep(0.05)
+
+
 def main():
     FPS = 50
+    controller_test = "--test-controller" in sys.argv
 
-    init_rerun(session_name="xlerobot_teleop_xbox")
+    if not controller_test:
+        init_rerun(session_name="xlerobot_teleop_xbox")
 
     # Init XBOX controller
     pygame.init()
@@ -420,15 +541,22 @@ def main():
         print("No XBOX controller detected!")
         pygame.quit()
         return
-    joystick = pygame.joystick.Joystick(0)
-    joystick.init()
-    print(f"[MAIN] Using controller: {joystick.get_name()}")
-    print_controller_state(joystick)
+    gamepad = XboxInput(0)
+    print(f"[MAIN] Using controller: {gamepad.name}")
+    print_controller_state(gamepad)
+
+    if controller_test:
+        try:
+            run_controller_test(gamepad)
+        finally:
+            gamepad.close()
+            pygame.quit()
+        return
 
     robot_config = XLerobotConfig(
         id="xlerobot",
-        port1="/dev/ttyACM1",
-        port2="/dev/ttyACM0",
+        port1="/dev/xlerobot_arm_left",
+        port2="/dev/xlerobot_arm_right",
     )
     robot = XLerobot(robot_config)
     try:
@@ -438,7 +566,7 @@ def main():
         print(f"[MAIN] Failed to connect to robot: {e}")
         print(robot_config)
         print(robot)
-        joystick.quit()
+        gamepad.close()
         pygame.quit()
         return
 
@@ -459,14 +587,14 @@ def main():
         while True:
             loop_start_t = time.perf_counter()
             pygame.event.pump()
-            left_key_state = get_xbox_key_state(joystick, LEFT_KEYMAP)
-            right_key_state = get_xbox_key_state(joystick, RIGHT_KEYMAP)
+            left_key_state = get_xbox_key_state(gamepad, LEFT_KEYMAP)
+            right_key_state = get_xbox_key_state(gamepad, RIGHT_KEYMAP)
             
-            if get_button(joystick, 7):  # Start
+            if gamepad.button("start"):
                 print("[MAIN] Start button pressed; stopping and disconnecting...")
                 break
 
-            global_reset = get_button(joystick, 6)  # Back
+            global_reset = gamepad.button("back")
             
             # Handle global reset for all components
             if global_reset:
@@ -486,7 +614,7 @@ def main():
             right_action = right_arm.p_control_action(robot, obs)
             head_action = head_control.p_control_action(robot, obs)
 
-            base_action = get_base_action(joystick, robot)
+            base_action = get_base_action(gamepad, robot)
 
             # Merge all actions
             action = {**left_action, **right_action, **head_action, **base_action}
@@ -497,7 +625,7 @@ def main():
     finally:
         if robot.bus1.is_connected or robot.bus2.is_connected:
             robot.disconnect()
-        joystick.quit()
+        gamepad.close()
         pygame.quit()
         print("Teleoperation ended.")
 

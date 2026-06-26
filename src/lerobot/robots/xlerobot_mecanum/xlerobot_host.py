@@ -56,7 +56,11 @@ class XLerobotHost:
 
 def main():
     logging.info("Configuring Xlerobot")
-    robot_config = XLerobotConfig(id="xlerobot_follower_mecanum", port1="/dev/ttyACM1", port2="/dev/ttyACM0")
+    robot_config = XLerobotConfig(
+        id="xlerobot_follower_mecanum",
+        port1="/dev/xlerobot_arm_left",
+        port2="/dev/xlerobot_arm_right",
+    )
     robot = XLerobot(robot_config)
 
     logging.info("Connecting Xlerobot")

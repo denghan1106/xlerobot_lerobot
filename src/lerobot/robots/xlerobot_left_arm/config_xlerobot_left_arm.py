@@ -6,7 +6,7 @@ from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from ..config import RobotConfig
 
 
-def xlerobot_right_arm_cameras_config() -> dict[str, CameraConfig]:
+def xlerobot_left_arm_cameras_config() -> dict[str, CameraConfig]:
     return {
         "center": OpenCVCameraConfig(
             index_or_path="/dev/xlerobot_cam_top",
@@ -35,18 +35,16 @@ def xlerobot_right_arm_cameras_config() -> dict[str, CameraConfig]:
     }
 
 
-@RobotConfig.register_subclass("xlerobot_right_arm")
+@RobotConfig.register_subclass("xlerobot_left_arm")
 @dataclass
-class XLerobotRightArmConfig(RobotConfig):
-    # Kept for command-line symmetry with the full XLeRobot config. The right-arm
-    # wrapper only opens port2, where the right arm and base motors live.
+class XLerobotLeftArmConfig(RobotConfig):
     port1: str = "/dev/xlerobot_arm_left"
     port2: str = "/dev/xlerobot_arm_right"
     disable_torque_on_disconnect: bool = True
 
     max_relative_target: float | dict[str, float] | None = None
 
-    cameras: dict[str, CameraConfig] = field(default_factory=xlerobot_right_arm_cameras_config)
+    cameras: dict[str, CameraConfig] = field(default_factory=xlerobot_left_arm_cameras_config)
 
     use_degrees: bool = False
     reuse_full_xlerobot_calibration: bool = True

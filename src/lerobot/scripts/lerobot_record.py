@@ -281,6 +281,9 @@ def record_loop(
         # Get robot observation
         obs = robot.get_observation()
 
+        if isinstance(teleop, Teleoperator) and hasattr(teleop, "set_robot_reference"):
+            teleop.set_robot_reference(obs)
+
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
         obs_processed = robot_observation_processor(obs)
 

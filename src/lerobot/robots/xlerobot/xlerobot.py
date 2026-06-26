@@ -325,7 +325,7 @@ class XLerobot(Robot):
             self.bus1.write("P_Coefficient", name, 16)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
             self.bus1.write("I_Coefficient", name, 0)
-            self.bus1.write("D_Coefficient", name, 43)
+            self.bus1.write("D_Coefficient", name, 32)
         
         for name in self.head_motors:
             self.bus1.write("Operating_Mode", name, OperatingMode.POSITION.value)
@@ -333,7 +333,7 @@ class XLerobot(Robot):
             self.bus1.write("P_Coefficient", name, 16)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
             self.bus1.write("I_Coefficient", name, 0)
-            self.bus1.write("D_Coefficient", name, 43)
+            self.bus1.write("D_Coefficient", name, 32)
         
         for name in self.right_arm_motors:
             self.bus2.write("Operating_Mode", name, OperatingMode.POSITION.value)
@@ -341,7 +341,7 @@ class XLerobot(Robot):
             self.bus2.write("P_Coefficient", name, 16)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
             self.bus2.write("I_Coefficient", name, 0)
-            self.bus2.write("D_Coefficient", name, 43)
+            self.bus2.write("D_Coefficient", name, 32)
         
         for name in self.base_motors:
             self.bus2.write("Operating_Mode", name, OperatingMode.VELOCITY.value)

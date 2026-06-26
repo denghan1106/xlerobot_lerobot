@@ -5,8 +5,8 @@ from lerobot.robots.xlerobot import XLerobot, XLerobotConfig
 
 
 ROBOT_ID = "xlerobot"
-LEFT_HEAD_PORT = "/dev/ttyACM1"
-RIGHT_BASE_PORT = "/dev/ttyACM0"
+LEFT_HEAD_PORT = "/dev/xlerobot_arm_left"
+RIGHT_BASE_PORT = "/dev/xlerobot_arm_right"
 
 
 def main() -> None:

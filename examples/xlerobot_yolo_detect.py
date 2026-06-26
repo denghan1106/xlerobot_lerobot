@@ -23,9 +23,9 @@ class CameraSpec:
 
 
 CAMERAS: dict[str, CameraSpec] = {
-    "center": CameraSpec("/dev/video2"),
-    "right_wrist": CameraSpec("/dev/video0"),
-    "left_wrist": CameraSpec("/dev/video4"),
+    "center": CameraSpec("/dev/xlerobot_cam_top"),
+    "right": CameraSpec("/dev/xlerobot_cam_right"),
+    "left": CameraSpec("/dev/xlerobot_cam_left"),
 }
 
 

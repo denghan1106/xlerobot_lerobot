@@ -399,8 +399,8 @@ def main():
     # For local/wired connection
     robot_config = XLerobotConfig(
         id=robot_name,
-        port1="/dev/ttyACM1",
-        port2="/dev/ttyACM0",
+        port1="/dev/xlerobot_arm_left",
+        port2="/dev/xlerobot_arm_right",
     )
     robot = XLerobot(robot_config)
     
