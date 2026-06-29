@@ -5,16 +5,21 @@ Typical usage from the repository root:
 
     uv run python aggregate_train1.py
 
-On the AGX layout used for recording, the defaults resolve to:
+On AGX, the defaults resolve to:
 
-    input:  /data/cdzhitu/robot_dev/lerobot_datasets/Denghan
-    output: /data/cdzhitu/robot_dev/lerobot_datasets/Denghan/xlerobot_right_arm_train1
+    input:  /data/cdzhitu/robot_dev/traindata/train1
+    output: /data/cdzhitu/robot_dev/traindata/xlerobot_right_arm_train1
+
+On this macOS workspace, the same relative layout resolves to:
+
+    input:  /Users/tony/robot_dev/traindata/train1
+    output: /Users/tony/robot_dev/traindata/xlerobot_right_arm_train1
 
 Pass explicit paths if needed:
 
     uv run python aggregate_train1.py \
-      --input-dir /data/cdzhitu/robot_dev/lerobot_datasets/Denghan \
-      --output-dir /data/cdzhitu/robot_dev/lerobot_datasets/Denghan/xlerobot_right_arm_train1
+      --input-dir /data/cdzhitu/robot_dev/traindata/train1 \
+      --output-dir /data/cdzhitu/robot_dev/traindata/xlerobot_right_arm_train1
 """
 
 from __future__ import annotations
@@ -31,36 +36,23 @@ if SRC_ROOT.exists():
     sys.path.insert(0, str(SRC_ROOT))
 
 
-DEFAULT_DATASET_HOME = Path("/data/cdzhitu/robot_dev/lerobot_datasets")
-DEFAULT_HF_USER = "Denghan"
 DEFAULT_DATASET_NAME = "xlerobot_right_arm_train1"
-DEFAULT_REPO_ID = f"{DEFAULT_HF_USER}/{DEFAULT_DATASET_NAME}"
+DEFAULT_REPO_ID = f"local/{DEFAULT_DATASET_NAME}"
+
+
+def default_workspace_root() -> Path:
+    agx_root = Path("/data/cdzhitu/robot_dev")
+    if agx_root.exists():
+        return agx_root
+    return REPO_ROOT.parent
 
 
 def default_input_dir() -> Path:
-    agx_recordings = DEFAULT_DATASET_HOME / DEFAULT_HF_USER
-    if agx_recordings.exists():
-        return agx_recordings
-
-    agx_train1 = Path("/data/cdzhitu/robot_dev/traindata/train1")
-    if agx_train1.exists():
-        return agx_train1
-
-    local_train1 = REPO_ROOT.parent / "traindata" / "train1"
-    if local_train1.exists():
-        return local_train1
-
-    local_recordings = REPO_ROOT.parent / "lerobot_datasets" / DEFAULT_HF_USER
-    if local_recordings.exists():
-        return local_recordings
-
-    return local_train1
+    return default_workspace_root() / "traindata" / "train1"
 
 
-def default_output_dir(input_dir: Path) -> Path:
-    if input_dir.name == "train1":
-        return input_dir.parent / DEFAULT_DATASET_NAME
-    return input_dir / DEFAULT_DATASET_NAME
+def default_output_dir() -> Path:
+    return default_workspace_root() / "traindata" / DEFAULT_DATASET_NAME
 
 
 def read_info(dataset_dir: Path) -> dict:
@@ -137,7 +129,10 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Output directory for the aggregated dataset. Defaults to INPUT_DIR/../xlerobot_right_arm_train1.",
+        help=(
+            "Output directory for the aggregated dataset. Defaults to "
+            "WORKSPACE_ROOT/traindata/xlerobot_right_arm_train1."
+        ),
     )
     parser.add_argument(
         "--repo-id",
@@ -175,9 +170,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     input_dir = args.input_dir.expanduser().resolve()
-    output_dir = (
-        args.output_dir.expanduser().resolve() if args.output_dir else default_output_dir(input_dir).resolve()
-    )
+    output_dir = args.output_dir.expanduser().resolve() if args.output_dir else default_output_dir().resolve()
 
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
@@ -197,6 +190,8 @@ def main() -> None:
                 "Use --overwrite to delete it before aggregation, or choose --output-dir."
             )
         shutil.rmtree(output_dir)
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     from lerobot.datasets.aggregate import aggregate_datasets
 
