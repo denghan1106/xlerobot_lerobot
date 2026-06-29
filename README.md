@@ -91,6 +91,132 @@ The project expects stable udev names instead of raw `/dev/ttyACM*` and `/dev/vi
 /dev/xlerobot_cam_top
 ```
 
+当前命名约定如下：
+
+The current naming convention is:
+
+```text
+/dev/xlerobot_arm_left     -> 左臂 follower 舵机总线 / left follower arm motor bus
+/dev/xlerobot_arm_right    -> 右臂 follower 舵机总线 / right follower arm motor bus
+/dev/xlerobot_leader_left  -> 左手 leader 舵机总线 / left leader motor bus
+/dev/xlerobot_leader_right -> 右手 leader 舵机总线 / right leader motor bus
+/dev/xlerobot_cam_left     -> 左侧相机 / left camera
+/dev/xlerobot_cam_right    -> 右侧相机 / right camera
+/dev/xlerobot_cam_top      -> 顶部/中心相机 / top or center camera
+```
+
+当前机器上的 udev 规则文件分为两类：
+
+On the current machine, udev rules are split into two files:
+
+```text
+/etc/udev/rules.d/99-xlerobot.rules          -> USB 舵机控制板 / USB motor controller boards
+/etc/udev/rules.d/99-xlerobot-cameras.rules  -> USB/UVC 相机 / USB/UVC cameras
+```
+
+当前 USB 舵机控制板按 `ID_SERIAL_SHORT` 匹配：
+
+Current USB motor controller boards are matched by `ID_SERIAL_SHORT`:
+
+```text
+ID_SERIAL_SHORT=5AE6081678  -> /dev/xlerobot_arm_left
+ID_SERIAL_SHORT=5AE6082199  -> /dev/xlerobot_arm_right
+ID_SERIAL_SHORT=5B14112105  -> /dev/xlerobot_leader_left
+ID_SERIAL_SHORT=5B14033495  -> /dev/xlerobot_leader_right
+```
+
+当前相机按 USB 拓扑路径 `ID_PATH` 匹配：
+
+Current cameras are matched by USB topology path `ID_PATH`:
+
+```text
+platform-3610000.usb-usb-0:4.3.4:1.0  -> /dev/xlerobot_cam_left
+platform-3610000.usb-usb-0:4.4.3:1.0  -> /dev/xlerobot_cam_right
+platform-3610000.usb-usb-0:4.2:1.0    -> /dev/xlerobot_cam_top
+```
+
+USB 舵机板的规则更稳，因为它跟随控制板序列号；相机规则跟随 USB 物理拓扑，如果相机换 USB 口，`ID_PATH` 可能变化，需要更新 `99-xlerobot-cameras.rules`。
+
+The motor controller rules are more stable because they follow each board's serial number. Camera rules follow USB physical topology; if a camera is moved to another USB port, `ID_PATH` may change and `99-xlerobot-cameras.rules` should be updated.
+
+可以用下面的命令查看当前软链接实际指向哪个系统设备：
+
+Use the following command to check what each stable name points to:
+
+```bash
+ls -l /dev/xlerobot*
+```
+
+示例输出可能类似：
+
+Example output:
+
+```text
+/dev/xlerobot_arm_left     -> ttyACM1
+/dev/xlerobot_arm_right    -> ttyACM0
+/dev/xlerobot_leader_left  -> ttyACM3
+/dev/xlerobot_leader_right -> ttyACM2
+/dev/xlerobot_cam_right    -> video2
+/dev/xlerobot_cam_top      -> video4
+```
+
+`ttyACM*` 是 USB 舵机控制板设备，`video*` 是 USB/UVC 相机设备。直接使用 `ttyACM0`、`ttyACM1`、`video0` 这类名字不稳定，重新插拔或换 USB 口后编号可能变化。因此本项目优先使用 `/dev/xlerobot_*` 软链接。
+
+`ttyACM*` devices are USB motor controller boards, and `video*` devices are USB/UVC cameras. Raw names like `ttyACM0`, `ttyACM1`, and `video0` are not stable; they may change after replugging devices or changing USB ports. This fork therefore uses `/dev/xlerobot_*` symlinks.
+
+如果硬件序列号、USB 转接板或相机发生变化，推荐修改 udev 规则，让 `/dev/xlerobot_*` 继续指向正确设备，而不是在每次命令里改 `/dev/ttyACM*`。
+
+If hardware serial numbers, USB adapters, or cameras change, the recommended fix is to update the udev rules so `/dev/xlerobot_*` keeps pointing to the correct devices, instead of changing raw `/dev/ttyACM*` paths in every command.
+
+udev 规则通常放在：
+
+udev rules are usually placed under:
+
+```text
+/etc/udev/rules.d/
+```
+
+修改规则后，重新加载并触发：
+
+After editing rules, reload and trigger them:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+也可以重新插拔 USB 设备，然后再检查：
+
+You can also replug the USB devices and check again:
+
+```bash
+ls -l /dev/xlerobot*
+```
+
+如果只是临时测试，也可以在命令行覆盖默认端口。例如：
+
+For temporary testing, ports can also be overridden from the command line. For example:
+
+```bash
+uv run lerobot-teleoperate \
+  --robot.type=xlerobot_right_arm \
+  --robot.port2=/dev/ttyACM0 \
+  --teleop.type=xlerobot_right_arm_leader \
+  --teleop.port=/dev/ttyACM2
+```
+
+代码里的默认端口主要在这些配置文件中：
+
+The default ports in code are mainly defined in:
+
+```text
+src/lerobot/robots/xlerobot/config_xlerobot.py
+src/lerobot/robots/xlerobot_left_arm/config_xlerobot_left_arm.py
+src/lerobot/robots/xlerobot_right_arm/config_xlerobot_right_arm.py
+src/lerobot/teleoperators/xlerobot_left_arm_leader/config_xlerobot_left_arm_leader.py
+src/lerobot/teleoperators/xlerobot_right_arm_leader/config_xlerobot_right_arm_leader.py
+```
+
 Rerun 中的相机名统一为：
 
 Camera names shown in Rerun are standardized as:

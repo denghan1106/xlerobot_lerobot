@@ -87,6 +87,7 @@ lerobot-record \\
 """
 
 import logging
+import math
 import time
 from dataclasses import asdict, dataclass
 from pprint import pformat
@@ -181,6 +182,8 @@ class RecordConfig:
     play_sounds: bool = True
     # Resume recording on an existing dataset.
     resume: bool = False
+    # Ask before pushing the recorded dataset to the Hugging Face Hub.
+    confirm_upload: bool = True
 
     def __post_init__(self):
         if self.teleop is None:
@@ -270,6 +273,7 @@ def record_loop(
 
     no_action_count = 0
     timestamp = 0
+    last_countdown_s: int | None = None
     start_episode_t = time.perf_counter()
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
@@ -326,16 +330,17 @@ def record_loop(
         # TODO(steven, pepijn, adil): we should use a pipeline step to clip the action, so the sent action is the action that we input to the robot.
         _sent_action = robot.send_action(robot_action_to_send)
 
-        # Write to dataset
-        if dataset is not None:
-            action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
-            frame = {**observation_frame, **action_frame, "task": single_task}
-            dataset.add_frame(frame)
-
         if display_data:
             log_rerun_data(
                 observation=obs_processed, action=action_values, compress_images=display_compressed_images
             )
+
+        # Write to dataset after Rerun logging so the async image writer cannot
+        # affect the live preview's view of the current camera buffers.
+        if dataset is not None:
+            action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
+            frame = {**observation_frame, **action_frame, "task": single_task}
+            dataset.add_frame(frame)
 
         dt_s = time.perf_counter() - start_loop_t
 
@@ -348,6 +353,11 @@ def record_loop(
         precise_sleep(max(sleep_time_s, 0.0))
 
         timestamp = time.perf_counter() - start_episode_t
+        remaining_s = max(0, math.ceil(control_time_s - timestamp))
+        if remaining_s != last_countdown_s:
+            phase = "episode" if dataset is not None else "reset"
+            logging.info("%s countdown: %ss remaining", phase, remaining_s)
+            last_countdown_s = remaining_s
 
 
 @parser.wrap()
@@ -489,6 +499,7 @@ def record(
                         control_time_s=cfg.dataset.reset_time_s,
                         single_task=cfg.dataset.single_task,
                         display_data=cfg.display_data,
+                        display_compressed_images=display_compressed_images,
                     )
 
                 if events["rerecord_episode"]:
@@ -516,7 +527,18 @@ def record(
 
         if cfg.dataset.push_to_hub:
             if dataset and dataset.num_episodes > 0:
-                dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
+                should_upload = True
+                if cfg.confirm_upload:
+                    response = input(
+                        f"Upload dataset {cfg.dataset.repo_id} with {dataset.num_episodes} episode(s) "
+                        "to Hugging Face Hub? [y/N]: "
+                    )
+                    should_upload = response.strip().lower() in {"y", "yes"}
+
+                if should_upload:
+                    dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
+                else:
+                    logging.info("Skipping push to hub. Dataset remains saved locally at %s", dataset.root)
             else:
                 logging.warning("No episodes saved — skipping push to hub")
 

@@ -14,6 +14,7 @@
 
 import numbers
 import os
+import logging
 
 import numpy as np
 
@@ -21,6 +22,8 @@ from lerobot.types import RobotAction, RobotObservation
 
 from .constants import ACTION, ACTION_PREFIX, OBS_PREFIX, OBS_STR
 from .import_utils import require_package
+
+_RERUN_FRAME_INDEX = 0
 
 
 def init_rerun(
@@ -43,8 +46,10 @@ def init_rerun(
     rr.init(session_name)
     memory_limit = os.getenv("LEROBOT_RERUN_MEMORY_LIMIT", "10%")
     if ip and port:
+        logging.info("Connecting to remote Rerun viewer at %s:%s", ip, port)
         rr.connect_grpc(url=f"rerun+http://{ip}:{port}/proxy")
     else:
+        logging.info("Spawning local Rerun viewer from PATH=%s", os.getenv("PATH", ""))
         rr.spawn(memory_limit=memory_limit)
 
 
@@ -90,6 +95,10 @@ def log_rerun_data(
     require_package("rerun-sdk", extra="viz", import_name="rerun")
     import rerun as rr
 
+    global _RERUN_FRAME_INDEX
+    rr.set_time("frame_index", sequence=_RERUN_FRAME_INDEX)
+    _RERUN_FRAME_INDEX += 1
+
     if observation:
         for k, v in observation.items():
             if v is None:
@@ -107,8 +116,9 @@ def log_rerun_data(
                     for i, vi in enumerate(arr):
                         rr.log(f"{key}_{i}", rr.Scalars(float(vi)))
                 else:
+                    arr = np.ascontiguousarray(arr.copy())
                     img_entity = rr.Image(arr).compress() if compress_images else rr.Image(arr)
-                    rr.log(key, entity=img_entity, static=True)
+                    rr.log(key, entity=img_entity)
 
     if action:
         for k, v in action.items():
