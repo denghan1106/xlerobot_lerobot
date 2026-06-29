@@ -5,16 +5,16 @@ Typical usage from the repository root:
 
     uv run python aggregate_train1.py
 
-On macOS with this workspace layout, the defaults resolve to:
+On the AGX layout used for recording, the defaults resolve to:
 
-    input:  /Users/tony/robot_dev/traindata/train1
-    output: /Users/tony/robot_dev/traindata/xlerobot_right_arm_train1
+    input:  /data/cdzhitu/robot_dev/lerobot_datasets/Denghan
+    output: /data/cdzhitu/robot_dev/lerobot_datasets/Denghan/xlerobot_right_arm_train1
 
-On the AGX layout, pass explicit paths if needed:
+Pass explicit paths if needed:
 
     uv run python aggregate_train1.py \
-      --input-dir /data/cdzhitu/robot_dev/traindata/train1 \
-      --output-dir /data/cdzhitu/robot_dev/traindata/xlerobot_right_arm_train1
+      --input-dir /data/cdzhitu/robot_dev/lerobot_datasets/Denghan \
+      --output-dir /data/cdzhitu/robot_dev/lerobot_datasets/Denghan/xlerobot_right_arm_train1
 """
 
 from __future__ import annotations
@@ -31,23 +31,36 @@ if SRC_ROOT.exists():
     sys.path.insert(0, str(SRC_ROOT))
 
 
-DEFAULT_REPO_ID = "cdzhitu/xlerobot_right_arm_train1"
+DEFAULT_DATASET_HOME = Path("/data/cdzhitu/robot_dev/lerobot_datasets")
+DEFAULT_HF_USER = "Denghan"
+DEFAULT_DATASET_NAME = "xlerobot_right_arm_train1"
+DEFAULT_REPO_ID = f"{DEFAULT_HF_USER}/{DEFAULT_DATASET_NAME}"
 
 
 def default_input_dir() -> Path:
-    local_train1 = REPO_ROOT.parent / "traindata" / "train1"
-    if local_train1.exists():
-        return local_train1
+    agx_recordings = DEFAULT_DATASET_HOME / DEFAULT_HF_USER
+    if agx_recordings.exists():
+        return agx_recordings
 
     agx_train1 = Path("/data/cdzhitu/robot_dev/traindata/train1")
     if agx_train1.exists():
         return agx_train1
 
+    local_train1 = REPO_ROOT.parent / "traindata" / "train1"
+    if local_train1.exists():
+        return local_train1
+
+    local_recordings = REPO_ROOT.parent / "lerobot_datasets" / DEFAULT_HF_USER
+    if local_recordings.exists():
+        return local_recordings
+
     return local_train1
 
 
 def default_output_dir(input_dir: Path) -> Path:
-    return input_dir.parent / "xlerobot_right_arm_train1"
+    if input_dir.name == "train1":
+        return input_dir.parent / DEFAULT_DATASET_NAME
+    return input_dir / DEFAULT_DATASET_NAME
 
 
 def read_info(dataset_dir: Path) -> dict:
