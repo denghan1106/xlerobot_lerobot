@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /data/cdzhitu/robot_dev/xlerobot_lerobot
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-$SCRIPT_DIR}"
+cd "$REPO_DIR"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$REPO_DIR/.." && pwd)}"
 
 MODE="${1:-check}"
 DEFAULT_HF_USER="${DEFAULT_HF_USER:-Denghan}"
@@ -13,9 +16,13 @@ HF="${RECORD_VENV}/bin/hf"
 LEROBOT_RECORD="${RECORD_VENV}/bin/lerobot-record"
 LEROBOT_TRAIN="${RECORD_VENV}/bin/lerobot-train"
 export PATH="${RECORD_VENV}/bin:${PATH}"
-DATASET_ROOT="${DATASET_ROOT:-/data/cdzhitu/robot_dev/lerobot_datasets}"
-CALIBRATION_ROOT="${CALIBRATION_ROOT:-/home/cdzhitu/.cache/huggingface/lerobot/calibration}"
-HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-/data/cdzhitu/robot_dev/hf_datasets_cache}"
+DATASET_ROOT="${DATASET_ROOT:-${WORKSPACE_ROOT}/lerobot_datasets}"
+TRAIN_DATA_ROOT="${TRAIN_DATA_ROOT:-${WORKSPACE_ROOT}/traindata}"
+CALIBRATION_ROOT="${CALIBRATION_ROOT:-${HOME}/.cache/huggingface/lerobot/calibration}"
+HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${WORKSPACE_ROOT}/hf_datasets_cache}"
+TRAIN_OUTPUT_ROOT="${TRAIN_OUTPUT_ROOT:-${WORKSPACE_ROOT}/train_outputs}"
+TRAIN_LOG_ROOT="${TRAIN_LOG_ROOT:-${WORKSPACE_ROOT}/train_logs}"
+HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 NUM_EPISODES="${NUM_EPISODES:-10}"
 FPS="${FPS:-20}"
 EPISODE_TIME_S="${EPISODE_TIME_S:-30}"
@@ -30,6 +37,7 @@ CONFIRM_UPLOAD="${CONFIRM_UPLOAD:-true}"
 export HF_LEROBOT_HOME="$DATASET_ROOT"
 export HF_LEROBOT_CALIBRATION="$CALIBRATION_ROOT"
 export HF_DATASETS_CACHE
+export HF_HUB_DISABLE_XET
 export LEROBOT_RERUN_MEMORY_LIMIT="$RERUN_MEMORY_LIMIT"
 
 if [[ "${SETUP:-0}" == "1" ]]; then
@@ -125,15 +133,15 @@ case "$MODE" in
       "${DISPLAY_ARGS[@]}"
     ;;
 
-  train|smoke-train|speed-train)
+  train|smoke-train|mac-smoke-train|speed-train)
     HF_USER="${HF_USER:-$DEFAULT_HF_USER}"
     if [[ -z "$HF_USER" ]]; then
       echo "Could not detect Hugging Face username. Set HF_USER manually, for example:" >&2
       echo "  HF_USER=Denghan $0 train" >&2
       exit 1
     fi
-    DATASET_REPO="${DATASET_REPO:-${HF_USER}/xlerobot_right_arm_train1}"
-    DATASET_PATH="${DATASET_PATH:-${DATASET_ROOT}/xlerobot_right_arm_train1}"
+    DATASET_REPO="${DATASET_REPO:-local/xlerobot_right_arm_train1}"
+    DATASET_PATH="${DATASET_PATH:-${TRAIN_DATA_ROOT}/xlerobot_right_arm_train1}"
     DEVICE="${DEVICE:-cuda}"
     TRAIN_STEPS="${TRAIN_STEPS:-10000}"
     BATCH_SIZE="${BATCH_SIZE:-8}"
@@ -143,9 +151,9 @@ case "$MODE" in
     EVAL_FREQ="${EVAL_FREQ:-0}"
     WANDB_ENABLE="${WANDB_ENABLE:-false}"
     PUSH_TO_HUB="${PUSH_TO_HUB:-false}"
-    OUTPUT_DIR="${OUTPUT_DIR:-/data/cdzhitu/robot_dev/train_outputs/xlerobot_right_arm_train1_smolvla_10k}"
+    OUTPUT_DIR="${OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/xlerobot_right_arm_train1_smolvla_10k}"
     JOB_NAME="${JOB_NAME:-xlerobot_right_arm_train1_smolvla_10k}"
-    LOG_DIR="${LOG_DIR:-/data/cdzhitu/robot_dev/train_logs}"
+    LOG_DIR="${LOG_DIR:-${TRAIN_LOG_ROOT}}"
     RENAME_MAP="${RENAME_MAP:-{\"observation.images.center\":\"observation.images.camera1\",\"observation.images.right\":\"observation.images.camera2\"}}"
     EMPTY_CAMERAS="${EMPTY_CAMERAS:-1}"
 
@@ -156,13 +164,23 @@ case "$MODE" in
       SAVE_FREQ="${SMOKE_SAVE_FREQ:-1}"
       LOG_FREQ="${SMOKE_LOG_FREQ:-1}"
       DEVICE="${SMOKE_DEVICE:-cpu}"
-      OUTPUT_DIR="${SMOKE_OUTPUT_DIR:-/data/cdzhitu/robot_dev/train_outputs/smoke_xlerobot_right_arm_train1}"
+      OUTPUT_DIR="${SMOKE_OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/smoke_xlerobot_right_arm_train1}"
       JOB_NAME="${SMOKE_JOB_NAME:-smoke_xlerobot_right_arm_train1}"
+    fi
+    if [[ "$MODE" == "mac-smoke-train" ]]; then
+      TRAIN_STEPS="${MAC_SMOKE_TRAIN_STEPS:-20}"
+      BATCH_SIZE="${MAC_SMOKE_BATCH_SIZE:-1}"
+      NUM_WORKERS="${MAC_SMOKE_NUM_WORKERS:-0}"
+      SAVE_FREQ="${MAC_SMOKE_SAVE_FREQ:-20}"
+      LOG_FREQ="${MAC_SMOKE_LOG_FREQ:-5}"
+      DEVICE="${MAC_SMOKE_DEVICE:-mps}"
+      OUTPUT_DIR="${MAC_SMOKE_OUTPUT_DIR:-outputs/train/test_mac_smolvla_script}"
+      JOB_NAME="${MAC_SMOKE_JOB_NAME:-test_mac_smolvla_script}"
     fi
     if [[ "$MODE" == "speed-train" ]]; then
       TRAIN_STEPS="${SPEED_TRAIN_STEPS:-100}"
       SAVE_FREQ="${SPEED_SAVE_FREQ:-100}"
-      OUTPUT_DIR="${SPEED_OUTPUT_DIR:-/data/cdzhitu/robot_dev/train_outputs/speedtest_xlerobot_smolvla}"
+      OUTPUT_DIR="${SPEED_OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/speedtest_xlerobot_smolvla}"
       JOB_NAME="${SPEED_JOB_NAME:-speedtest_xlerobot_smolvla}"
     fi
 
@@ -212,7 +230,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "Usage: $0 [check|record|train|smoke-train|speed-train]" >&2
+    echo "Usage: $0 [check|record|train|smoke-train|mac-smoke-train|speed-train]" >&2
     echo "Examples:" >&2
     echo "  $0 setup-record" >&2
     echo "  SETUP=1 $0 check" >&2
@@ -225,8 +243,9 @@ case "$MODE" in
     echo "  CONFIRM_UPLOAD=false DATASET_NAME=xlerobot_right_arm_my_task TASK='$TASK' $0 record" >&2
     echo "  ARM=left DATASET_NAME=xlerobot_left_arm_my_task TASK='$TASK' $0 record" >&2
     echo "  $0 smoke-train" >&2
+    echo "  $0 mac-smoke-train" >&2
     echo "  $0 speed-train" >&2
-    echo "  DATASET_REPO=${DEFAULT_HF_USER}/xlerobot_right_arm_train1 $0 train" >&2
+    echo "  DATASET_REPO=local/xlerobot_right_arm_train1 $0 train" >&2
     echo "  DEVICE=cpu TRAIN_STEPS=1 BATCH_SIZE=1 NUM_WORKERS=0 $0 train" >&2
     exit 1
     ;;
