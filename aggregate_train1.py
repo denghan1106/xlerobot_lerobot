@@ -147,11 +147,6 @@ def parse_args() -> argparse.Namespace:
         help="Delete output-dir before aggregation if it already exists.",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Only print selected datasets and output path; do not import LeRobot or write output.",
-    )
-    parser.add_argument(
         "--concatenate-videos",
         action="store_true",
         help="Pack source videos into larger output shards. Default keeps source files separate.",
@@ -181,10 +176,6 @@ def main() -> None:
     summarize_roots(roots)
     print(f"Output: {output_dir}")
     print(f"Aggregated repo_id: {args.repo_id}")
-
-    if args.dry_run:
-        print("Dry run only; no output was written.")
-        return
 
     if output_dir.exists():
         if not args.overwrite:
