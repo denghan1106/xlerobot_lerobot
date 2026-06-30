@@ -15,6 +15,9 @@ PYTHON="${RECORD_VENV}/bin/python"
 HF="${RECORD_VENV}/bin/hf"
 LEROBOT_RECORD="${RECORD_VENV}/bin/lerobot-record"
 LEROBOT_TRAIN="${RECORD_VENV}/bin/lerobot-train"
+JETSON_VENV="${JETSON_VENV:-.venv-jetson}"
+JETSON_PYTHON="${JETSON_VENV}/bin/python"
+JETSON_CUDA_LIB="${JETSON_CUDA_LIB:-${REPO_DIR}/${JETSON_VENV}/lib/python3.10/site-packages/nvidia/cu12/lib}"
 export PATH="${RECORD_VENV}/bin:${PATH}"
 DATASET_ROOT="${DATASET_ROOT:-${WORKSPACE_ROOT}/lerobot_datasets}"
 TRAIN_DATA_ROOT="${TRAIN_DATA_ROOT:-${WORKSPACE_ROOT}/traindata}"
@@ -22,12 +25,16 @@ CALIBRATION_ROOT="${CALIBRATION_ROOT:-${HOME}/.cache/huggingface/lerobot/calibra
 HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${WORKSPACE_ROOT}/hf_datasets_cache}"
 TRAIN_OUTPUT_ROOT="${TRAIN_OUTPUT_ROOT:-${WORKSPACE_ROOT}/train_outputs}"
 TRAIN_LOG_ROOT="${TRAIN_LOG_ROOT:-${WORKSPACE_ROOT}/train_logs}"
+POLICY_PATH="${POLICY_PATH:-${TRAIN_OUTPUT_ROOT}/020000/pretrained_model}"
+RENAME_MAP="${RENAME_MAP:-{\"observation.images.center\":\"observation.images.camera1\",\"observation.images.right\":\"observation.images.camera2\"}}"
 HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 NUM_EPISODES="${NUM_EPISODES:-10}"
 FPS="${FPS:-20}"
 EPISODE_TIME_S="${EPISODE_TIME_S:-30}"
 RESET_TIME_S="${RESET_TIME_S:-15}"
+ROLLOUT_DURATION="${ROLLOUT_DURATION:-10}"
 DISPLAY_DATA="${DISPLAY_DATA:-true}"
+DEPLOY_DISPLAY_DATA="${DEPLOY_DISPLAY_DATA:-false}"
 DISPLAY_IP="${DISPLAY_IP:-}"
 DISPLAY_PORT="${DISPLAY_PORT:-}"
 DISPLAY_COMPRESSED_IMAGES="${DISPLAY_COMPRESSED_IMAGES:-true}"
@@ -154,7 +161,6 @@ case "$MODE" in
     OUTPUT_DIR="${OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/xlerobot_right_arm_train1_smolvla_10k}"
     JOB_NAME="${JOB_NAME:-xlerobot_right_arm_train1_smolvla_10k}"
     LOG_DIR="${LOG_DIR:-${TRAIN_LOG_ROOT}}"
-    RENAME_MAP="${RENAME_MAP:-{\"observation.images.center\":\"observation.images.camera1\",\"observation.images.right\":\"observation.images.camera2\"}}"
     EMPTY_CAMERAS="${EMPTY_CAMERAS:-1}"
 
     if [[ "$MODE" == "smoke-train" ]]; then
@@ -222,8 +228,71 @@ case "$MODE" in
       2>&1 | tee "${LOG_DIR}/${JOB_NAME}.log"
     ;;
 
+  deploy|rollout)
+    HF_USER="${HF_USER:-$DEFAULT_HF_USER}"
+
+    if [[ "$ARM" == "right" ]]; then
+      ROBOT_TYPE="xlerobot_right_arm"
+    elif [[ "$ARM" == "left" ]]; then
+      ROBOT_TYPE="xlerobot_left_arm"
+    else
+      echo "ARM must be 'right' or 'left'. Current: $ARM" >&2
+      exit 1
+    fi
+
+    CAMERA_ARGS=()
+    if [[ "$CAMERA_PRESET" == "right_task" ]]; then
+      CAMERA_ARGS=(
+        --robot.cameras="{ center: {type: opencv, index_or_path: /dev/xlerobot_cam_top, width: 640, height: 480, fps: 30, fourcc: MJPG, rotation: 180}, right: {type: opencv, index_or_path: /dev/xlerobot_cam_right, width: 640, height: 480, fps: 30, fourcc: MJPG, rotation: 180}}"
+      )
+    elif [[ "$CAMERA_PRESET" != "all" ]]; then
+      echo "CAMERA_PRESET must be 'right_task' or 'all'. Current: $CAMERA_PRESET" >&2
+      exit 1
+    fi
+
+    DISPLAY_ARGS=(--display_data="$DEPLOY_DISPLAY_DATA")
+    if [[ -n "$DISPLAY_IP" && -n "$DISPLAY_PORT" ]]; then
+      DISPLAY_ARGS+=(--display_ip="$DISPLAY_IP" --display_port="$DISPLAY_PORT")
+    fi
+
+    echo "Deployment configuration:"
+    echo "  Policy path: ${POLICY_PATH}"
+    echo "  Jetson venv: ${JETSON_VENV}"
+    echo "  Jetson CUDA lib: ${JETSON_CUDA_LIB}"
+    echo "  Task: ${TASK}"
+    echo "  Arm: ${ARM}"
+    echo "  Robot type: ${ROBOT_TYPE}"
+    echo "  Camera preset: ${CAMERA_PRESET}"
+    echo "  Rename map: ${RENAME_MAP}"
+    echo "  FPS: ${FPS}"
+    echo "  Duration: ${ROLLOUT_DURATION}s"
+    echo "  Display data: ${DEPLOY_DISPLAY_DATA}"
+
+    export LD_LIBRARY_PATH="${JETSON_CUDA_LIB}:${LD_LIBRARY_PATH:-}"
+    export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
+    export CUDA_MODULE_LOADING="${CUDA_MODULE_LOADING:-LAZY}"
+    export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+    export TORCH_CUDNN_V8_API_LRU_CACHE_LIMIT="${TORCH_CUDNN_V8_API_LRU_CACHE_LIMIT:-0}"
+
+    "$JETSON_PYTHON" -m lerobot.scripts.lerobot_rollout \
+      --strategy.type=base \
+      --policy.path="$POLICY_PATH" \
+      --policy.device=cuda \
+      --robot.type="$ROBOT_TYPE" \
+      --robot.id=xlerobot \
+      --robot.port1=/dev/xlerobot_arm_left \
+      --robot.port2=/dev/xlerobot_arm_right \
+      --robot.reuse_full_xlerobot_calibration=true \
+      "${CAMERA_ARGS[@]}" \
+      --rename_map="$RENAME_MAP" \
+      --task="$TASK" \
+      --fps="$FPS" \
+      --duration="$ROLLOUT_DURATION" \
+      "${DISPLAY_ARGS[@]}"
+    ;;
+
   *)
-    echo "Usage: $0 [check|record|train|smoke-train|mac-train]" >&2
+    echo "Usage: $0 [check|record|train|smoke-train|mac-train|deploy|rollout]" >&2
     echo "Examples:" >&2
     echo "  $0 setup-record" >&2
     echo "  SETUP=1 $0 check" >&2
@@ -239,6 +308,8 @@ case "$MODE" in
     echo "  $0 mac-train" >&2
     echo "  DATASET_REPO=local/xlerobot_right_arm_train1 $0 train" >&2
     echo "  DEVICE=cpu TRAIN_STEPS=1 BATCH_SIZE=1 NUM_WORKERS=0 $0 train" >&2
+    echo "  $0 deploy" >&2
+    echo "  POLICY_PATH=${POLICY_PATH} ROLLOUT_DURATION=10 TASK='$TASK' $0 deploy" >&2
     exit 1
     ;;
 esac
