@@ -35,6 +35,7 @@ RESET_TIME_S="${RESET_TIME_S:-15}"
 ROLLOUT_DURATION="${ROLLOUT_DURATION:-10}"
 DISPLAY_DATA="${DISPLAY_DATA:-true}"
 DEPLOY_DISPLAY_DATA="${DEPLOY_DISPLAY_DATA:-false}"
+DEPLOY_DTYPE="${DEPLOY_DTYPE:-}"
 DISPLAY_IP="${DISPLAY_IP:-}"
 DISPLAY_PORT="${DISPLAY_PORT:-}"
 DISPLAY_COMPRESSED_IMAGES="${DISPLAY_COMPRESSED_IMAGES:-true}"
@@ -267,12 +268,17 @@ case "$MODE" in
     echo "  FPS: ${FPS}"
     echo "  Duration: ${ROLLOUT_DURATION}s"
     echo "  Display data: ${DEPLOY_DISPLAY_DATA}"
+    echo "  Deploy dtype: ${DEPLOY_DTYPE:-default}"
 
     export LD_LIBRARY_PATH="${JETSON_CUDA_LIB}:${LD_LIBRARY_PATH:-}"
     export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
     export CUDA_MODULE_LOADING="${CUDA_MODULE_LOADING:-LAZY}"
     export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
     export TORCH_CUDNN_V8_API_LRU_CACHE_LIMIT="${TORCH_CUDNN_V8_API_LRU_CACHE_LIMIT:-0}"
+    export LEROBOT_LOAD_SAFETENSORS_ON_CPU="${LEROBOT_LOAD_SAFETENSORS_ON_CPU:-1}"
+    if [[ -n "$DEPLOY_DTYPE" ]]; then
+      export LEROBOT_POLICY_DTYPE="$DEPLOY_DTYPE"
+    fi
 
     "$JETSON_PYTHON" -m lerobot.scripts.lerobot_rollout \
       --strategy.type=base \

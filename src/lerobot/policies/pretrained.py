@@ -14,6 +14,7 @@
 import abc
 import builtins
 import dataclasses
+import gc
 import logging
 import os
 from importlib.resources import files
@@ -23,6 +24,7 @@ from typing import TypedDict, TypeVar
 
 import packaging
 import safetensors
+import torch
 from huggingface_hub import HfApi, ModelCard, ModelCardData, hf_hub_download, save_torch_state_dict
 from huggingface_hub.constants import SAFETENSORS_SINGLE_FILE
 from huggingface_hub.errors import HfHubHTTPError
@@ -225,6 +227,26 @@ class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
                     f"{SAFETENSORS_SINGLE_FILE} not found on the HuggingFace Hub in {model_id}"
                 ) from e
 
+        policy_dtype = os.environ.get("LEROBOT_POLICY_DTYPE")
+        if policy_dtype:
+            dtype_by_name = {
+                "bfloat16": torch.bfloat16,
+                "bf16": torch.bfloat16,
+                "float16": torch.float16,
+                "fp16": torch.float16,
+                "float32": torch.float32,
+                "fp32": torch.float32,
+            }
+            if policy_dtype not in dtype_by_name:
+                raise ValueError(
+                    f"Unsupported LEROBOT_POLICY_DTYPE={policy_dtype!r}. "
+                    f"Use one of: {sorted(dtype_by_name)}"
+                )
+            policy.to(dtype=dtype_by_name[policy_dtype])
+
+        gc.collect()
+        if config.device.startswith("cuda"):
+            torch.cuda.empty_cache()
         policy.to(config.device)
         policy.eval()
         return policy
@@ -233,10 +255,17 @@ class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
     def _load_as_safetensor(cls, model: T, model_file: str, map_location: str, strict: bool) -> T:
         # Create base kwargs
         kwargs = {"strict": strict}
+        load_device = map_location
+
+        # Loading safetensors directly on CUDA can briefly duplicate the full
+        # checkpoint on GPU/unified memory. On Jetson this often fails before
+        # the final model would fit, so default to CPU staging for CUDA loads.
+        if map_location.startswith("cuda") and os.environ.get("LEROBOT_LOAD_SAFETENSORS_ON_CPU", "1") != "0":
+            load_device = "cpu"
 
         # Add device parameter for newer versions that support it
         if packaging.version.parse(safetensors.__version__) >= packaging.version.parse("0.4.3"):
-            kwargs["device"] = map_location
+            kwargs["device"] = load_device
 
         # Load the model with appropriate kwargs
         missing_keys, unexpected_keys = load_model_as_safetensor(model, model_file, **kwargs)
