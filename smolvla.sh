@@ -133,7 +133,7 @@ case "$MODE" in
       "${DISPLAY_ARGS[@]}"
     ;;
 
-  train|smoke-train|mac-smoke-train|speed-train)
+  train|smoke-train|mac-train)
     HF_USER="${HF_USER:-$DEFAULT_HF_USER}"
     if [[ -z "$HF_USER" ]]; then
       echo "Could not detect Hugging Face username. Set HF_USER manually, for example:" >&2
@@ -149,7 +149,7 @@ case "$MODE" in
     SAVE_FREQ="${SAVE_FREQ:-1000}"
     LOG_FREQ="${LOG_FREQ:-50}"
     EVAL_FREQ="${EVAL_FREQ:-0}"
-    WANDB_ENABLE="${WANDB_ENABLE:-false}"
+    WANDB_ENABLE="${WANDB_ENABLE:-true}"
     PUSH_TO_HUB="${PUSH_TO_HUB:-false}"
     OUTPUT_DIR="${OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/xlerobot_right_arm_train1_smolvla_10k}"
     JOB_NAME="${JOB_NAME:-xlerobot_right_arm_train1_smolvla_10k}"
@@ -167,23 +167,16 @@ case "$MODE" in
       OUTPUT_DIR="${SMOKE_OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/smoke_xlerobot_right_arm_train1}"
       JOB_NAME="${SMOKE_JOB_NAME:-smoke_xlerobot_right_arm_train1}"
     fi
-    if [[ "$MODE" == "mac-smoke-train" ]]; then
-      TRAIN_STEPS="${MAC_SMOKE_TRAIN_STEPS:-20}"
-      BATCH_SIZE="${MAC_SMOKE_BATCH_SIZE:-1}"
-      NUM_WORKERS="${MAC_SMOKE_NUM_WORKERS:-0}"
-      SAVE_FREQ="${MAC_SMOKE_SAVE_FREQ:-20}"
-      LOG_FREQ="${MAC_SMOKE_LOG_FREQ:-5}"
-      DEVICE="${MAC_SMOKE_DEVICE:-mps}"
-      OUTPUT_DIR="${MAC_SMOKE_OUTPUT_DIR:-outputs/train/test_mac_smolvla_script}"
-      JOB_NAME="${MAC_SMOKE_JOB_NAME:-test_mac_smolvla_script}"
+    if [[ "$MODE" == "mac-train" ]]; then
+      TRAIN_STEPS="${MAC_TRAIN_STEPS:-20000}"
+      BATCH_SIZE="${MAC_BATCH_SIZE:-4}"
+      NUM_WORKERS="${MAC_NUM_WORKERS:-0}"
+      SAVE_FREQ="${MAC_SAVE_FREQ:-2500}"
+      LOG_FREQ="${MAC_LOG_FREQ:-200}"
+      DEVICE="${MAC_DEVICE:-mps}"
+      OUTPUT_DIR="${MAC_OUTPUT_DIR:-outputs/train/mac_xlerobot_right_arm_smolvla_20k_2}"
+      JOB_NAME="${MAC_JOB_NAME:-mac_xlerobot_right_arm_smolvla_20k_2}"
     fi
-    if [[ "$MODE" == "speed-train" ]]; then
-      TRAIN_STEPS="${SPEED_TRAIN_STEPS:-100}"
-      SAVE_FREQ="${SPEED_SAVE_FREQ:-100}"
-      OUTPUT_DIR="${SPEED_OUTPUT_DIR:-${TRAIN_OUTPUT_ROOT}/speedtest_xlerobot_smolvla}"
-      JOB_NAME="${SPEED_JOB_NAME:-speedtest_xlerobot_smolvla}"
-    fi
-
     mkdir -p "$LOG_DIR" "$(dirname "$OUTPUT_DIR")"
 
     echo "Training configuration:"
@@ -230,7 +223,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "Usage: $0 [check|record|train|smoke-train|mac-smoke-train|speed-train]" >&2
+    echo "Usage: $0 [check|record|train|smoke-train|mac-train]" >&2
     echo "Examples:" >&2
     echo "  $0 setup-record" >&2
     echo "  SETUP=1 $0 check" >&2
@@ -243,8 +236,7 @@ case "$MODE" in
     echo "  CONFIRM_UPLOAD=false DATASET_NAME=xlerobot_right_arm_my_task TASK='$TASK' $0 record" >&2
     echo "  ARM=left DATASET_NAME=xlerobot_left_arm_my_task TASK='$TASK' $0 record" >&2
     echo "  $0 smoke-train" >&2
-    echo "  $0 mac-smoke-train" >&2
-    echo "  $0 speed-train" >&2
+    echo "  $0 mac-train" >&2
     echo "  DATASET_REPO=local/xlerobot_right_arm_train1 $0 train" >&2
     echo "  DEVICE=cpu TRAIN_STEPS=1 BATCH_SIZE=1 NUM_WORKERS=0 $0 train" >&2
     exit 1
